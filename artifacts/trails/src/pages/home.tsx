@@ -1,69 +1,96 @@
-import { useState } from 'react';
 import { useLocation } from 'wouter';
-import { useCreateUser, useGetState, useCreateDive, getGetStateQueryKey } from '@workspace/api-client-react';
-import { getUserId, setUserId } from '@/lib/auth';
+import { useUser, useClerk, Show } from '@clerk/react';
+import { useGetState, useCreateDive, getGetStateQueryKey } from '@workspace/api-client-react';
+import { useLocalUser } from '@/lib/useLocalUser';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Loader2 } from 'lucide-react';
 
+const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
+
 export default function HomePage() {
-  const [location, setLocation] = useLocation();
-  const userId = getUserId();
-  
-  if (!userId) {
-    return <NameGate onLogin={() => setLocation('/onboard')} />;
+  const [, setLocation] = useLocation();
+  const { isLoaded } = useUser();
+
+  if (!isLoaded) {
+    return (
+      <div className="flex-1 flex items-center justify-center min-h-screen">
+        <Loader2 className="w-8 h-8 text-primary animate-spin" />
+      </div>
+    );
   }
 
-  return <HomeContent userId={userId} onNavigate={setLocation} />;
+  return (
+    <>
+      <Show when="signed-out">
+        <Landing />
+      </Show>
+      <Show when="signed-in">
+        <SignedInHome onNavigate={setLocation} />
+      </Show>
+    </>
+  );
 }
 
-function NameGate({ onLogin }: { onLogin: () => void }) {
-  const [name, setName] = useState('');
-  const createUser = useCreateUser();
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!name.trim()) return;
-    createUser.mutate({ data: { name } }, {
-      onSuccess: (user) => {
-        setUserId(user.id, user.name);
-        onLogin();
-      }
-    });
-  };
-
+function Landing() {
   return (
     <div className="flex-1 flex flex-col items-center justify-center p-6 min-h-screen">
       <div className="w-full max-w-sm space-y-8 text-center animate-in fade-in slide-in-from-bottom-4 duration-1000">
         <div className="w-16 h-16 rounded-full bg-primary/20 flex items-center justify-center mx-auto mb-8 animate-sonar">
           <div className="w-4 h-4 rounded-full bg-primary" />
         </div>
-        <h1 className="text-3xl font-serif text-primary-foreground tracking-tight">Magical Musical Submarine</h1>
-        <p className="text-muted-foreground font-mono text-sm uppercase tracking-widest">A private journal for your ears</p>
-        
-        <form onSubmit={handleSubmit} className="mt-12 space-y-4">
-          <Input 
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="What's your name?"
-            className="text-center bg-transparent border-t-0 border-l-0 border-r-0 border-b-2 border-primary/30 rounded-none focus-visible:ring-0 focus-visible:border-primary text-xl h-14 placeholder:text-muted-foreground/50"
-            disabled={createUser.isPending}
-          />
-          <Button 
-            type="submit" 
-            className="w-full h-12 bg-primary/10 text-primary hover:bg-primary/20 border border-primary/20 rounded-full transition-all"
-            disabled={!name.trim() || createUser.isPending}
+        <h1 className="text-3xl font-serif text-primary-foreground tracking-tight">
+          Magical Musical Submarine
+        </h1>
+        <p className="text-muted-foreground font-mono text-sm uppercase tracking-widest">
+          A private journal for your ears
+        </p>
+        <div className="mt-12 space-y-3">
+          <Button
+            asChild
+            className="w-full h-12 bg-primary text-primary-foreground hover:bg-primary/90 rounded-full"
           >
-            {createUser.isPending ? <Loader2 className="w-5 h-5 animate-spin" /> : "Descend"}
+            <a href={`${basePath}/sign-up`}>Begin your descent</a>
           </Button>
-        </form>
+          <Button
+            asChild
+            variant="ghost"
+            className="w-full h-12 text-muted-foreground hover:text-primary rounded-full"
+          >
+            <a href={`${basePath}/sign-in`}>Sign in</a>
+          </Button>
+        </div>
       </div>
     </div>
   );
 }
 
-function HomeContent({ userId, onNavigate }: { userId: number, onNavigate: (path: string) => void }) {
-  const { data: state, isLoading } = useGetState({ userId }, { query: { enabled: !!userId, queryKey: getGetStateQueryKey({ userId }) } });
+function SignedInHome({ onNavigate }: { onNavigate: (path: string) => void }) {
+  const { localUserId, isLoading } = useLocalUser();
+
+  if (isLoading || !localUserId) {
+    return (
+      <div className="flex-1 flex items-center justify-center min-h-screen">
+        <div className="space-y-4 text-center">
+          <Loader2 className="w-8 h-8 text-primary animate-spin mx-auto" />
+          <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest">
+            Preparing your submarine…
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return <HomeContent userId={localUserId} onNavigate={onNavigate} />;
+}
+
+function HomeContent({ userId, onNavigate }: { userId: number; onNavigate: (path: string) => void }) {
+  const { signOut } = useClerk();
+  const { user } = useUser();
+
+  const { data: state, isLoading } = useGetState(
+    { userId },
+    { query: { enabled: !!userId, queryKey: getGetStateQueryKey({ userId }) } },
+  );
   const createDive = useCreateDive();
 
   if (isLoading || !state) {
@@ -75,7 +102,6 @@ function HomeContent({ userId, onNavigate }: { userId: number, onNavigate: (path
   }
 
   if (!state.onboarded) {
-    // Need to use timeout to avoid setting state while rendering
     setTimeout(() => onNavigate('/onboard'), 0);
     return null;
   }
@@ -83,20 +109,33 @@ function HomeContent({ userId, onNavigate }: { userId: number, onNavigate: (path
   const handleNewDive = () => {
     createDive.mutate(
       { data: { userId, name: `Dive ${state.diveCount + 1}` } },
-      { onSuccess: (dive) => onNavigate(`/dive/${dive.id}`) }
+      { onSuccess: (dive) => onNavigate(`/dive/${dive.id}`) },
     );
   };
 
   return (
     <div className="p-6 pt-16 max-w-md mx-auto space-y-10 animate-in fade-in duration-1000">
+      {/* User bar */}
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-mono text-muted-foreground uppercase tracking-widest">
+          {user?.firstName ?? user?.emailAddresses[0]?.emailAddress?.split('@')[0] ?? 'Diver'}
+        </span>
+        <button
+          onClick={() => signOut({ redirectUrl: basePath || '/' })}
+          className="text-xs font-mono text-muted-foreground/60 hover:text-muted-foreground transition-colors uppercase tracking-widest"
+        >
+          Surface
+        </button>
+      </div>
+
       <div className="space-y-4">
         <h2 className="text-sm font-mono text-muted-foreground uppercase tracking-widest">Your Depth</h2>
         {state.portraitText ? (
           <p className="text-xl font-serif leading-relaxed text-primary-foreground/90">
-            {state.portraitText.substring(0, 120)}...
+            {state.portraitText.substring(0, 120)}…
           </p>
         ) : (
-          <p className="text-xl font-serif text-muted-foreground italic">Your portrait is still forming...</p>
+          <p className="text-xl font-serif text-muted-foreground italic">Your portrait is still forming…</p>
         )}
       </div>
 
@@ -107,7 +146,7 @@ function HomeContent({ userId, onNavigate }: { userId: number, onNavigate: (path
             Active Dive
           </h3>
           <p className="text-lg font-medium">{state.activeDiveName}</p>
-          <Button 
+          <Button
             onClick={() => onNavigate(`/dive/${state.activeDiveId}`)}
             className="w-full bg-primary text-primary-foreground hover:bg-primary/90 rounded-full h-12 mt-4"
           >
@@ -117,13 +156,13 @@ function HomeContent({ userId, onNavigate }: { userId: number, onNavigate: (path
       )}
 
       <div>
-        <Button 
+        <Button
           onClick={handleNewDive}
           variant="outline"
           className="w-full border-primary/30 text-primary hover:bg-primary/10 rounded-full h-12"
           disabled={createDive.isPending}
         >
-          {createDive.isPending ? <Loader2 className="w-5 h-5 animate-spin" /> : "Start new dive"}
+          {createDive.isPending ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Start new dive'}
         </Button>
       </div>
     </div>

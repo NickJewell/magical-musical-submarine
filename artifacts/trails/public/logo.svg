@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 60" fill="none">
+  <!-- Submarine hull -->
+  <ellipse cx="88" cy="30" rx="52" ry="18" fill="#0d2a2a" stroke="#1a5c5c" stroke-width="1.5"/>
+  <!-- Conning tower -->
+  <rect x="74" y="10" width="20" height="12" rx="4" fill="#0d2a2a" stroke="#1a5c5c" stroke-width="1.5"/>
+  <!-- Periscope -->
+  <line x1="84" y1="10" x2="84" y2="4" stroke="#2dd4bf" stroke-width="2" stroke-linecap="round"/>
+  <circle cx="84" cy="3" r="2" fill="#2dd4bf"/>
+  <!-- Porthole -->
+  <circle cx="82" cy="30" r="5" fill="#0a1f1f" stroke="#2dd4bf" stroke-width="1.5"/>
+  <circle cx="82" cy="30" r="2" fill="#2dd4bf" opacity="0.6"/>
+  <!-- Propeller blades -->
+  <ellipse cx="140" cy="27" rx="4" ry="8" fill="#1a5c5c" transform="rotate(-20 140 27)"/>
+  <ellipse cx="140" cy="33" rx="4" ry="8" fill="#1a5c5c" transform="rotate(20 140 33)"/>
+  <circle cx="140" cy="30" r="3" fill="#2dd4bf"/>
+  <!-- Bubbles -->
+  <circle cx="148" cy="20" r="2.5" fill="none" stroke="#2dd4bf" stroke-width="1.2" opacity="0.7"/>
+  <circle cx="155" cy="14" r="1.8" fill="none" stroke="#2dd4bf" stroke-width="1" opacity="0.5"/>
+  <circle cx="152" cy="8"  r="1.2" fill="none" stroke="#2dd4bf" stroke-width="0.8" opacity="0.3"/>
+  <!-- Wordmark -->
+  <text x="8" y="52" font-family="Georgia, serif" font-size="13" fill="#2dd4bf" letter-spacing="4" opacity="0.9">TRAILS</text>
+</svg>

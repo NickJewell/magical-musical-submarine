@@ -1,0 +1,297 @@
+# Trails — Replit Build Spec (v1, hosted)
+
+*A standalone, implementation-ready spec for building the hosted version of Trails on Replit. Written for the Replit AI agent + a human iterating alongside it. Working title: "Trails."*
+
+---
+
+## 0. What this is
+
+Trails is an **LLM-guided, choose-your-adventure music discovery** web app. Instead of collaborative filtering ("people who liked X liked Y"), it uses a language model's latent knowledge of *why* people like music. The user seeds a few songs they love; the LLM hypothesizes a taste profile, proposes **named themed directions** to explore, and — for the chosen direction — returns a few **catalogue-verified** recommendations, each with a **personalized narrative paragraph**. The user follows links out to Spotify, listens, rates, and goes deeper.
+
+This spec is derived from a working CLI/chat prototype (in this repo: `src/`, `.claude/skills/trail/SKILL.md`, `RUNBOOK.md`, `music-trails-spec.md`). **The prototype validated the pipeline and surfaced several design decisions that are now settled — see §2. Do not relitigate them.**
+
+### The core loop
+1. **Seed** → onboarding: prompted seeding + discriminative pairwise ranking.
+2. **Portrait** → an editable written taste profile the app distills and shows.
+3. **Directions** → the LLM proposes 3 named themed directions + a de-emphasized "well-trodden road" (the conventional CF pick — also the control arm).
+4. **Recommend** → for the chosen direction, ~3 verified tracks, each with a rich narrative + Spotify/YouTube links.
+5. **Listen** → off-app, at the user's pace.
+6. **Rate** → per item: *listened / skipped / already knew it*, then a 1–5 (half-steps allowed); plus a 1–5 for the path.
+7. **Deepen** → ratings update the portrait; a "previously on…" recap leads to the next direction.
+
+---
+
+## 1. Non-negotiable principle: anti-hallucination gate
+
+**The LLM never free-associates facts into user-visible copy.** This matters *more* with open models (they hallucinate music facts more than frontier models), so it is the architectural backbone:
+
+- **Propose** → LLM emits only *candidates*: `{artist, title, type, year_guess, rationale}`.
+- **Resolve** → every candidate is validated against **MusicBrainz**. Unmatched candidates are **dropped and regenerated** — never shown. Every accepted entity is keyed by its **MBID**, and its canonical title/artist/year + relationships are stored.
+- **Narrate** → a second LLM pass writes the paragraph *over the verified metadata only*. It describes; it does not recall. Specific connective claims ("same producer", "same rhythm section") are allowed **only** where the stored MusicBrainz relationships support them.
+
+Everything a user reads about *what a song is* comes from MusicBrainz, not the model.
+
+---
+
+## 2. Settled decisions (validated in the prototype — build these in, don't redesign)
+
+1. **Narratives are long and detailed.** Target **~150–220 words per pick** (~2 paragraphs). Spend the length on: why it fits *this* user (cite their portrait/seeds/prior ratings), what to listen for / where to enter, and emotional+craft texture. **Do not pad with invented facts** to hit length — when MusicBrainz metadata is sparse, spend words on taste-connection and listening guidance.
+2. **Default to track recommendations, not albums.** A whole album as one pick is too much for a sitting. Use `track` granularity by default; reserve `album` for when the album is genuinely the unit. When a track comes from a notable album, **name 1–2 sibling tracks in the narrative** as the "go deeper" path instead of recommending the album.
+3. **Ratings include the listen-state, and "already knew it" is first-class.** Recommending a song the user already knows is fine *if the rating sharpens the model* — a known-song rating is the lowest-noise signal there is. Track it; don't treat "known" as failure. **Half-step scores (e.g. 3.5) are allowed.**
+4. **Discovery vs resonance is a headline metric.** The prototype found the app is excellent at *recognizing* taste (known songs → high scores) but weaker at *expanding* it (genuinely-new picks scored lower). So: (a) log new-vs-known per rec, (b) show a discovery-rate readout, and (c) let the LLM deliberately steer some picks *off the canonical center* the user likely already owns — not just away from the CF list.
+5. **The "well-trodden road" is a real, logged control arm.** Every dive step logs the LLM picks (`arm='llm'`) alongside the top conventional CF pick (`arm='well_trodden'`), so LLM-vs-CF ratings and discovery rates are directly comparable. This is the app's built-in measurement of its own reason to exist.
+6. **Directions are contrastive.** The 3 named directions are steered *away from* the top of the Last.fm similar-artists list (that list IS the well-trodden road). This is how "diverse picks CF wouldn't surface" gets operationalized.
+
+---
+
+## 3. Tech stack
+
+- **Framework:** Next.js (App Router, TypeScript, React) — full-stack, one deployable on Replit.
+- **DB:** **Postgres** (Replit's built-in Postgres, or Neon). Use a query builder/ORM (Drizzle recommended; Prisma acceptable). Schema in §6.
+- **Styling:** Tailwind CSS. Mobile-first, minimal. No component library needed.
+- **LLM:** **OpenRouter** (`https://openrouter.ai/api/v1/chat/completions`, OpenAI-compatible). Model IDs in env (see §4, §5). Use JSON-schema structured outputs for Propose; plain text for Narrate.
+- **HTTP:** a shared fetch wrapper with per-host throttling, on-disk/DB response cache, retries on 503/429, and a proper `User-Agent` (MusicBrainz requires a contact string). Port the logic from the prototype's `src/http.js`.
+- **Hosting:** Replit web deployment. Persist secrets via Replit Secrets.
+
+Port these modules from the prototype (`src/`), adapting SQLite→Postgres and adding the OpenRouter client:
+`db`, `http`, `musicbrainz` (the resolver gate — includes the tested `decide()`/`resolve()` logic), `enrich` (Last.fm + ListenBrainz), `links` (Odesli + Spotify-search fallback), **new:** `llm` (OpenRouter Propose/Narrate).
+
+---
+
+## 4. Environment variables (Replit Secrets)
+
+```
+OPENROUTER_API_KEY=          # required — the app's LLM access
+OPENROUTER_PROPOSE_MODEL=    # e.g. deepseek/deepseek-chat  (good open model, strong music knowledge + JSON)
+OPENROUTER_NARRATE_MODEL=    # e.g. meta-llama/llama-3.3-70b-instruct (or reuse the propose model)
+LASTFM_API_KEY=              # control arm (Last.fm getSimilar + tags). Falls back to ListenBrainz if absent.
+MB_CONTACT=                  # email/URL for the MusicBrainz User-Agent (required by MB etiquette)
+DATABASE_URL=                # Postgres connection string
+APP_BASE_URL=                # for building absolute links
+```
+
+**Model guidance:** use good open models on OpenRouter and keep them swappable via env. Reasonable defaults at time of writing: **DeepSeek V3** (`deepseek/deepseek-chat`) or **Llama 3.3 70B** (`meta-llama/llama-3.3-70b-instruct`) or **Qwen2.5 72B** (`qwen/qwen-2.5-72b-instruct`). Pick the best-available strong open model; the Propose stage benefits most from broad music knowledge, the Narrate stage from fluent writing. Because of the §1 gate, model hallucination on *facts* is caught by MusicBrainz — but pick a model with good music breadth so Propose generates resolvable, on-theme candidates.
+
+---
+
+## 5. External services & LLM pipeline
+
+### 5.1 MusicBrainz — the resolver gate (free, no auth, ~1 req/s)
+- Search: `GET /ws/2/recording?query=...&fmt=json` (tracks) or `/ws/2/release-group?query=...` (albums).
+- Resolve = fielded search (`recording:"<title>" AND artist:"<artist>"`) → pick best candidate by **string similarity** (Dice coefficient on normalized bigrams) → **reject** unless `titleSim ≥ 0.55` and `artistSim ≥ 0.45`. This rejects fabricated titles even under a real artist. (Port `normalize()`, `similarity()`, `decide()`, `resolve()` from `src/musicbrainz.js` — they have tests.)
+- On accept, lookup with `?inc=artist-credits+artist-rels+work-rels+genres+url-rels&fmt=json` for relationships + genres; store as the entity's verified record. Cache by MBID.
+
+### 5.2 Last.fm — control arm + contrastive steering (free key)
+- `artist.getsimilar` / `track.getsimilar` + `artist.gettoptags`. This list = the "well-trodden road." The Propose stage is given this list explicitly and told to steer the 3 named directions *away* from its top.
+
+### 5.3 ListenBrainz — no-key fallback for similarity (MBID-keyed).
+
+### 5.4 Odesli + Spotify links (the "listen on my phone" requirement)
+- Primary: **Odesli** `GET https://api.song.link/v1-alpha.1/links?url=<MB entity URL>&userCountry=US` → `linksByPlatform.spotify.url` etc.
+- **Known limitation (validated):** Odesli often can't map MusicBrainz *release-group* URLs (returns 400). Since we default to **tracks**, recording-URL resolution is better — but always **fall back to a Spotify search URL** built from the *verified* title+artist: `https://open.spotify.com/search/<encodeURIComponent("artist title")>`.
+- **Mobile behavior:** use `https://open.spotify.com/...` universal links (they open the Spotify app on iOS/Android), not `spotify:` URIs. The search-fallback link opens the Spotify app to that search. Optionally enhance later with Spotify's **client-credentials** search API (app-only, no user OAuth) to resolve exact `open.spotify.com/track/<id>` URLs — but the search fallback satisfies "follow links to Spotify on my phone" today. **No Spotify user OAuth** (per the original decision — dev-mode 5-user cap makes it a non-starter).
+
+### 5.5 OpenRouter — the two LLM stages
+POST to `/api/v1/chat/completions` with `Authorization: Bearer $OPENROUTER_API_KEY`.
+
+**Propose** (model = `OPENROUTER_PROPOSE_MODEL`, `response_format` = JSON schema):
+- Context: the user's **portrait**, the current **dive recap** (prior steps/ratings), the chosen **direction label + rationale**, and the **Last.fm similar list** (to steer away from).
+- Output schema: `{ candidates: [{ artist, title, type: "track"|"album", year_guess, rationale, likely_known: "low"|"medium"|"high" }] }`. Ask for ~5 (over-generate to absorb rejects). `likely_known` powers the discovery/novelty control (§2.4).
+- The server then Resolves each candidate; keeps ~3 that pass; regenerates if too many fail.
+
+**Directions** (same model): given portrait + recap + Last.fm list, output `{ hypothesis, directions: [{label, rationale}] }` — 3 named directions steered off the CF top.
+
+**Narrate** (model = `OPENROUTER_NARRATE_MODEL`, plain text): for each verified rec, given the user's portrait + prior ratings + the rec's **verified** metadata (canonical title/artist/year, genres, relationships) + sibling-track names, write **~150–220 words** per §2.1. System prompt must forbid asserting facts not present in the supplied metadata.
+
+---
+
+## 6. Data model (Postgres)
+
+```sql
+-- Soft multi-user: name-based identity, no passwords (see §7).
+CREATE TABLE users (
+  id          SERIAL PRIMARY KEY,
+  name        TEXT NOT NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Append-only ground truth: seed | choice | rating | skip | edit | pair_choice
+CREATE TABLE taste_events (
+  id           SERIAL PRIMARY KEY,
+  user_id      INT NOT NULL REFERENCES users(id),
+  ts           TIMESTAMPTZ NOT NULL DEFAULT now(),
+  kind         TEXT NOT NULL,
+  payload_json JSONB NOT NULL DEFAULT '{}'
+);
+
+CREATE TABLE portraits (
+  id           SERIAL PRIMARY KEY,
+  user_id      INT NOT NULL REFERENCES users(id),
+  version      INT NOT NULL,
+  text         TEXT NOT NULL,
+  source       TEXT NOT NULL DEFAULT 'llm',      -- llm | user_edit
+  generated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE dives (
+  id         SERIAL PRIMARY KEY,
+  user_id    INT NOT NULL REFERENCES users(id),
+  name       TEXT NOT NULL,
+  status     TEXT NOT NULL DEFAULT 'active',      -- active | archived
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE dive_steps (
+  id               SERIAL PRIMARY KEY,
+  dive_id          INT NOT NULL REFERENCES dives(id),
+  seq              INT NOT NULL,
+  hypothesis_text  TEXT,
+  directions_json  JSONB,                          -- the 3 named directions + well-trodden road
+  chosen_direction TEXT,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE recommendations (
+  id               SERIAL PRIMARY KEY,
+  dive_step_id     INT NOT NULL REFERENCES dive_steps(id),
+  type             TEXT NOT NULL,                  -- track | album
+  mbid             TEXT NOT NULL,
+  entry_track_mbid TEXT,                           -- required when type='album'
+  title            TEXT NOT NULL,                  -- canonical, from MusicBrainz
+  artist           TEXT NOT NULL,
+  year             INT,
+  narrative_text   TEXT,
+  links_json       JSONB,
+  artwork_url      TEXT,                           -- Cover Art Archive by MBID (optional)
+  arm              TEXT NOT NULL DEFAULT 'llm',    -- llm | well_trodden (control arm)
+  likely_known     TEXT,                           -- low | medium | high (Propose's novelty guess)
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE ratings (
+  id           SERIAL PRIMARY KEY,
+  rec_id       INT NOT NULL REFERENCES recommendations(id),
+  listen_state TEXT NOT NULL,                      -- listened | skipped | known
+  score        NUMERIC(2,1),                       -- 1.0–5.0, half-steps allowed
+  rated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE path_ratings (
+  id           SERIAL PRIMARY KEY,
+  dive_step_id INT NOT NULL REFERENCES dive_steps(id),
+  score        NUMERIC(2,1) NOT NULL,
+  rated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Verified-entity cache; rec metadata is read from here, never from LLM free text.
+CREATE TABLE resolved_entities (
+  mbid               TEXT PRIMARY KEY,
+  type               TEXT NOT NULL,
+  title              TEXT NOT NULL,
+  artist             TEXT NOT NULL,
+  year               INT,
+  relationships_json JSONB,
+  resolved_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Ratings are also mirrored into taste_events (kind='rating') as the append-only log.
+```
+
+Latest rating per rec = `MAX(id)`/`MAX(rated_at)` (ratings are append-only; corrections supersede). Latest portrait = `MAX(version)`.
+
+---
+
+## 7. Users / identity (minimal)
+
+Keep it minimal but allow a few people (Nick + friends) without real auth:
+- First visit: a one-field **"What's your name?"** screen → creates/returns a `users` row → store `userId` in a cookie/localStorage. No passwords.
+- All queries are scoped by `userId`. This makes the app trivially single-user for Nick while allowing friends to have their own taste graph. (Real auth is out of scope.)
+
+---
+
+## 8. Backend API (Next.js route handlers)
+
+| Method & path | Purpose |
+|---|---|
+| `POST /api/user` | create/return user by name; sets cookie |
+| `GET /api/state` | onboarded?, seed count, active dives, latest portrait meta |
+| `GET /api/search?q=&type=` | MusicBrainz search (disambiguation) |
+| `POST /api/seed` | `{mbid,type,prompt}` → lookup+cache, log `seed` event |
+| `GET /api/onboarding/next-pair` | server returns the next discriminating pair (from the user's seeds) |
+| `POST /api/pair` | `{a,b,result:-2..2}` → log `pair_choice` |
+| `GET /api/portrait` · `PUT /api/portrait` | show / save (regenerate via LLM, or user_edit) |
+| `POST /api/dive` · `GET /api/dive/:id` · `GET /api/recap/:id` | dive lifecycle + recap |
+| `POST /api/directions` | LLM: hypothesis + 3 directions (given portrait+recap+Last.fm), returns options incl. well-trodden road |
+| `POST /api/step` | record chosen direction → returns `stepId` |
+| `POST /api/recommend` | run Propose→Resolve→Narrate for `stepId`; also resolve+log the control-arm pick; return the dive queue |
+| `GET /api/links/:mbid?type=` | Odesli + Spotify-search fallback |
+| `POST /api/rate` · `POST /api/path-rate` | ratings (mirror to taste_events) |
+| `GET /api/metrics` | §2 dashboard: discovery rate + avg score by arm/bucket |
+
+Server modules do the work; route handlers are thin. Rate-limit MusicBrainz centrally in the `http` module.
+
+---
+
+## 9. Minimal UI (mobile-first)
+
+Keep it clean and few-tap. Suggested screens/routes:
+
+1. **`/` Home / resume** — name gate on first visit; else portrait summary + active dive with a "previously on…" recap and two buttons: **Continue dive** / **New dive**.
+2. **`/onboard` Onboarding** —
+   - *Prompted seeding:* rotating mood/memory prompt cards ("a song you put on to focus", "something you loved at 15 and still defend"); a search box per prompt → tap the right MusicBrainz match → seed chip appears. Collect 5–8.
+   - *Pairwise:* card showing **A vs B** (two of the user's own seeds) with a single 5-point control: **strongly A · A · tie · B · strongly B**. Server picks the pairs (discriminative). Up to ~10, stop early.
+   - *Portrait reveal:* the distilled portrait in an **editable textarea** with a Save button (edits → `user_edit`). Then → Directions.
+3. **`/dive/:id` Directions** — 3 big tappable **direction cards** (name + one-line rationale) and, visually de-emphasized below, a small **"well-trodden road"** link. Tap → generates recommendations.
+4. **`/dive/:id/queue` Today's Dive** — a list of **rec cards**: title — artist — year, the full narrative, and buttons **▶ Spotify** / **▶ YouTube** (universal links that open the apps on a phone). The control-arm pick is shown quietly/separately or hidden behind a "show the obvious pick" toggle.
+5. **Rating return** (same screen or `/dive/:id/rate`) — per item: a segmented control **Listened / Skipped / Knew it**, then a **1–5 star input with half-steps** (only if listened/known); plus one **path rating** (1–5) for the dive step. Submit → recap + next directions.
+6. **`/portrait`** — view/edit the portrait anytime.
+7. **`/metrics`** (Nick-facing) — the §2 readout: discovery rate and avg score, **LLM-new vs LLM-known vs CF-control**; per-dive path ratings. This is how Nick judges whether it's working.
+
+Design: mobile-first, large tap targets, no horizontal scroll, minimal chrome. Spotify/YouTube buttons are the primary CTAs on rec cards.
+
+---
+
+## 10. Ratings & measurement (exact)
+
+- **Listen-state** precedes score: `listened | skipped | known`. Skipped items take no score.
+- **Score:** 1.0–5.0, **half-steps allowed** (`NUMERIC(2,1)`).
+- **Path rating:** 1.0–5.0 per `dive_step`.
+- **Control arm:** for each step, after generating LLM recs, resolve the **top Last.fm-similar pick** and store it as a `well_trodden` rec under the same step. Prompt the user to rate it too (and capture *known vs new* — it's the crux).
+- **§2 metrics** (`/api/metrics`): group latest-rating-per-rec into **{ LLM-new, LLM-known, CF-control }**; report count, avg score, and **discovery rate** (share of LLM recs that were new). The prototype's finding to beat: LLM-new ≈ 3.4, LLM-known ≈ 4.6, CF ≈ 4.75 — i.e. *make new discoveries score like the knowns.*
+
+---
+
+## 11. Build milestones (suggested order for the agent)
+
+1. **Scaffold** — Next.js + Tailwind + Postgres + Drizzle; run the §6 schema; wire env/secrets; name-gate + `users`.
+2. **External modules + tests** — port `http`, `musicbrainz` (with the resolver tests: *Kind of Blue* resolves; a fabricated title under a real artist is rejected), `enrich`, `links`. Add the OpenRouter `llm` client.
+3. **Pipeline** — Directions, Propose→Resolve→Narrate, control-arm logging (server functions), behind API routes. Verify via a scripted end-to-end before UI.
+4. **Onboarding UI** — prompted seeding + pairwise + portrait reveal/edit.
+5. **Dive UI** — directions → queue with narratives + Spotify/YouTube buttons → rating return → deepen.
+6. **Portrait + Metrics** — edit loop + the §2 dashboard.
+7. **Polish** — caching, rate-limit safety, mobile pass, empty/error states.
+
+---
+
+## 12. Acceptance criteria
+
+- **Resolver rejects fakes:** a known-good candidate (e.g. *Kind of Blue* / Miles Davis) resolves to a stable MBID with genres/relationships; a fabricated title under a real artist is rejected and never shown.
+- **No hallucinated facts** reach the UI: rec title/artist/year always match MusicBrainz; narratives make specific relationship claims only where stored relationships support them.
+- **Full loop works** on a phone: onboard → portrait → pick a direction → get ~3 verified tracks with working **Spotify links that open the Spotify app** → rate (listened/skipped/knew it + half-step score) → path rating → next directions with a recap.
+- **Narratives** are ~150–220 words and reference the user's portrait/ratings.
+- **Persistence:** everything survives a refresh/redeploy (Postgres); a returning user resumes their active dive.
+- **Measurement:** `/metrics` shows discovery rate + avg score split LLM-new / LLM-known / CF-control.
+
+---
+
+## 13. Out of scope (v1)
+
+Real auth/social; v2 collaborative "trails" (shared weighted journeys); portrait embeddings/user similarity; native apps/notifications; Discogs/Wikidata enrichment; Cover Art is optional (nice-to-have, MBID-keyed). Non-music verticals architecturally allowed but unbuilt.
+
+---
+
+## 14. Notes for the human (Nick) iterating
+
+- The chat/CLI prototype in this repo is the reference implementation for the pipeline and the resolver — its behavior (and tests) should port directly; only the LLM layer changes (Claude-in-chat → OpenRouter).
+- Open-model choice is the main quality variable to tune; the anti-hallucination gate makes a weaker model *safe*, but a music-knowledgeable model makes Propose generate better resolvable candidates. Start with DeepSeek V3 or Llama 3.3 70B and A/B via the env vars.
+- The most important thing to watch after launch is the **§2 metric**: can the app make a *new* song score like a *known* favourite? That, not raw ratings, is the reason it exists.

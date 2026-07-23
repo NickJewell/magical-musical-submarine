@@ -3,20 +3,35 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Trails — Magical Musical Submarine API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: users
+    description: User identity
+  - name: seeds
+    description: Seed tracks
+  - name: onboarding
+    description: Onboarding flow
+  - name: portrait
+    description: Taste portrait
+  - name: dives
+    description: Dive sessions
+  - name: ratings
+    description: Ratings
+  - name: links
+    description: Streaming links
+  - name: metrics
+    description: Analytics
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,6 +39,461 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /user:
+    post:
+      operationId: createUser
+      tags: [users]
+      summary: Create or return user by name
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserInput"
+      responses:
+        "200":
+          description: User found or created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
+  /state:
+    get:
+      operationId: getState
+      tags: [users]
+      summary: Get current user state
+      parameters:
+        - name: userId
+          in: query
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: User state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppState"
+
+  /search:
+    get:
+      operationId: searchMusic
+      tags: [seeds]
+      summary: Search MusicBrainz for tracks or artists
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [track, album, artist]
+            default: track
+        - name: userId
+          in: query
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SearchResult"
+
+  /seed:
+    post:
+      operationId: addSeed
+      tags: [seeds]
+      summary: Add a seed track to the user's taste
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SeedInput"
+      responses:
+        "201":
+          description: Seed added
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Seed"
+
+  /seeds:
+    get:
+      operationId: listSeeds
+      tags: [seeds]
+      summary: List all seeds for a user
+      parameters:
+        - name: userId
+          in: query
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of seeds
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Seed"
+
+  /onboarding/next-pair:
+    get:
+      operationId: getNextPair
+      tags: [onboarding]
+      summary: Get the next discriminative pair for pairwise ranking
+      parameters:
+        - name: userId
+          in: query
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Next pair or null if done
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PairResponse"
+
+  /pair:
+    post:
+      operationId: submitPair
+      tags: [onboarding]
+      summary: Submit pairwise ranking result
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PairInput"
+      responses:
+        "200":
+          description: Pair recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResponse"
+
+  /portrait:
+    get:
+      operationId: getPortrait
+      tags: [portrait]
+      summary: Get the latest portrait for a user
+      parameters:
+        - name: userId
+          in: query
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Latest portrait
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Portrait"
+        "404":
+          description: No portrait yet
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    put:
+      operationId: updatePortrait
+      tags: [portrait]
+      summary: Save portrait with user edits
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PortraitUpdate"
+      responses:
+        "200":
+          description: Updated portrait
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Portrait"
+
+  /portrait/generate:
+    post:
+      operationId: generatePortrait
+      tags: [portrait]
+      summary: Generate a new portrait from seeds and events via LLM
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GeneratePortraitInput"
+      responses:
+        "200":
+          description: Generated portrait
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Portrait"
+
+  /dive:
+    post:
+      operationId: createDive
+      tags: [dives]
+      summary: Start a new dive
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DiveInput"
+      responses:
+        "201":
+          description: Dive created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Dive"
+    get:
+      operationId: listDives
+      tags: [dives]
+      summary: List all dives for a user
+      parameters:
+        - name: userId
+          in: query
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of dives
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Dive"
+
+  /dive/detail:
+    get:
+      operationId: loadDive
+      tags: [dives]
+      summary: Get a dive with all steps
+      parameters:
+        - name: diveId
+          in: query
+          required: true
+          schema:
+            type: integer
+        - name: userId
+          in: query
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Dive details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiveDetail"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /recap:
+    get:
+      operationId: loadRecap
+      tags: [dives]
+      summary: Get previously-on recap for a dive
+      parameters:
+        - name: diveId
+          in: query
+          required: true
+          schema:
+            type: integer
+        - name: userId
+          in: query
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Recap narrative
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecapResponse"
+
+  /directions:
+    post:
+      operationId: getDirections
+      tags: [dives]
+      summary: Generate LLM hypothesis and 3 themed directions
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DirectionsInput"
+      responses:
+        "200":
+          description: Directions generated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DirectionsResponse"
+
+  /step:
+    post:
+      operationId: chooseStep
+      tags: [dives]
+      summary: Record chosen direction and create a dive step
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StepInput"
+      responses:
+        "201":
+          description: Step created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiveStep"
+
+  /recommend:
+    post:
+      operationId: getRecommendations
+      tags: [dives]
+      summary: Run Propose→Resolve→Narrate for a dive step
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecommendInput"
+      responses:
+        "200":
+          description: Recommendations with narratives
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Recommendation"
+
+  /links:
+    get:
+      operationId: resolveLinks
+      tags: [links]
+      summary: Get streaming links for an MBID (Odesli + Spotify fallback)
+      parameters:
+        - name: mbid
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [track, album]
+            default: track
+        - name: title
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: artist
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Streaming links
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StreamingLinks"
+
+  /rate:
+    post:
+      operationId: rateRec
+      tags: [ratings]
+      summary: Rate a recommendation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RatingInput"
+      responses:
+        "201":
+          description: Rating recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Rating"
+
+  /path-rate:
+    post:
+      operationId: rateStep
+      tags: [ratings]
+      summary: Rate a dive step (path rating)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PathRatingInput"
+      responses:
+        "201":
+          description: Path rating recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PathRating"
+
+  /metrics:
+    get:
+      operationId: getMetrics
+      tags: [metrics]
+      summary: Get discovery rate and avg score by arm
+      parameters:
+        - name: userId
+          in: query
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Metrics dashboard
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MetricsResponse"
+
 components:
   schemas:
     HealthStatus:
@@ -31,6 +501,548 @@ components:
       properties:
         status:
           type: string
-      required:
-        - status
+      required: [status]
 
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required: [error]
+
+    OkResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+      required: [ok]
+
+    # --- Users ---
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        seedCount:
+          type: integer
+        hasPortrait:
+          type: boolean
+      required: [id, name, createdAt, seedCount, hasPortrait]
+
+    UserInput:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+      required: [name]
+
+    AppState:
+      type: object
+      properties:
+        userId:
+          type: integer
+        seedCount:
+          type: integer
+        onboarded:
+          type: boolean
+        hasPortrait:
+          type: boolean
+        portraitText:
+          type: ["string", "null"]
+        portraitVersion:
+          type: ["integer", "null"]
+        activeDiveId:
+          type: ["integer", "null"]
+        activeDiveName:
+          type: ["string", "null"]
+        diveCount:
+          type: integer
+      required: [userId, seedCount, onboarded, hasPortrait, portraitText, portraitVersion, activeDiveId, activeDiveName, diveCount]
+
+    # --- Seeds ---
+    Seed:
+      type: object
+      properties:
+        id:
+          type: integer
+        userId:
+          type: integer
+        mbid:
+          type: string
+        type:
+          type: string
+          enum: [track, album]
+        title:
+          type: string
+        artist:
+          type: string
+        year:
+          type: ["integer", "null"]
+        prompt:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, userId, mbid, type, title, artist, year, prompt, createdAt]
+
+    SeedInput:
+      type: object
+      properties:
+        userId:
+          type: integer
+        mbid:
+          type: string
+        type:
+          type: string
+          enum: [track, album]
+        title:
+          type: string
+        artist:
+          type: string
+        year:
+          type: ["integer", "null"]
+        prompt:
+          type: ["string", "null"]
+      required: [userId, mbid, type, title, artist]
+
+    SearchResult:
+      type: object
+      properties:
+        mbid:
+          type: string
+        type:
+          type: string
+          enum: [track, album, artist]
+        title:
+          type: string
+        artist:
+          type: string
+        year:
+          type: ["integer", "null"]
+        disambiguation:
+          type: ["string", "null"]
+        score:
+          type: number
+      required: [mbid, type, title, artist, year, disambiguation, score]
+
+    # --- Onboarding ---
+    PairResponse:
+      type: object
+      properties:
+        done:
+          type: boolean
+        aMbid:
+          type: ["string", "null"]
+        aTitle:
+          type: ["string", "null"]
+        aArtist:
+          type: ["string", "null"]
+        bMbid:
+          type: ["string", "null"]
+        bTitle:
+          type: ["string", "null"]
+        bArtist:
+          type: ["string", "null"]
+        pairIndex:
+          type: ["integer", "null"]
+        totalPairs:
+          type: ["integer", "null"]
+      required: [done, aMbid, aTitle, aArtist, bMbid, bTitle, bArtist, pairIndex, totalPairs]
+
+    PairInput:
+      type: object
+      properties:
+        userId:
+          type: integer
+        aMbid:
+          type: string
+        bMbid:
+          type: string
+        result:
+          type: integer
+          minimum: -2
+          maximum: 2
+          description: "-2=strongly A, -1=A, 0=tie, 1=B, 2=strongly B"
+      required: [userId, aMbid, bMbid, result]
+
+    # --- Portrait ---
+    Portrait:
+      type: object
+      properties:
+        id:
+          type: integer
+        userId:
+          type: integer
+        version:
+          type: integer
+        text:
+          type: string
+        source:
+          type: string
+          enum: [llm, user_edit]
+        generatedAt:
+          type: string
+          format: date-time
+      required: [id, userId, version, text, source, generatedAt]
+
+    PortraitUpdate:
+      type: object
+      properties:
+        userId:
+          type: integer
+        text:
+          type: string
+      required: [userId, text]
+
+    GeneratePortraitInput:
+      type: object
+      properties:
+        userId:
+          type: integer
+      required: [userId]
+
+    # --- Dives ---
+    Dive:
+      type: object
+      properties:
+        id:
+          type: integer
+        userId:
+          type: integer
+        name:
+          type: string
+        status:
+          type: string
+          enum: [active, archived]
+        stepCount:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, userId, name, status, stepCount, createdAt]
+
+    DiveInput:
+      type: object
+      properties:
+        userId:
+          type: integer
+        name:
+          type: string
+      required: [userId, name]
+
+    # Stored directions as a flat serializable shape (avoids zod.looseObject)
+    StoredDirections:
+      type: object
+      properties:
+        hypothesis:
+          type: string
+        directions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Direction"
+        wellTroddenDirection:
+          $ref: "#/components/schemas/Direction"
+      required: [hypothesis, directions, wellTroddenDirection]
+
+    # Stored links as flat serializable shape
+    StoredLinks:
+      type: object
+      properties:
+        spotify:
+          type: ["string", "null"]
+        youtube:
+          type: ["string", "null"]
+        appleMusic:
+          type: ["string", "null"]
+        source:
+          type: string
+          enum: [odesli, search_fallback]
+      required: [spotify, youtube, appleMusic, source]
+
+    DiveStep:
+      type: object
+      properties:
+        id:
+          type: integer
+        diveId:
+          type: integer
+        seq:
+          type: integer
+        hypothesisText:
+          type: ["string", "null"]
+        directionsJson:
+          oneOf:
+            - $ref: "#/components/schemas/StoredDirections"
+            - type: "null"
+        chosenDirection:
+          type: ["string", "null"]
+        recommendations:
+          type: array
+          items:
+            $ref: "#/components/schemas/Recommendation"
+        pathRating:
+          oneOf:
+            - $ref: "#/components/schemas/PathRating"
+            - type: "null"
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, diveId, seq, hypothesisText, directionsJson, chosenDirection, recommendations, pathRating, createdAt]
+
+    DiveDetail:
+      type: object
+      properties:
+        id:
+          type: integer
+        userId:
+          type: integer
+        name:
+          type: string
+        status:
+          type: string
+          enum: [active, archived]
+        steps:
+          type: array
+          items:
+            $ref: "#/components/schemas/DiveStep"
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, userId, name, status, steps, createdAt]
+
+    Direction:
+      type: object
+      properties:
+        label:
+          type: string
+        rationale:
+          type: string
+        isWellTrodden:
+          type: boolean
+      required: [label, rationale, isWellTrodden]
+
+    DirectionsInput:
+      type: object
+      properties:
+        userId:
+          type: integer
+        diveId:
+          type: integer
+      required: [userId, diveId]
+
+    DirectionsResponse:
+      type: object
+      properties:
+        hypothesis:
+          type: string
+        directions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Direction"
+        wellTroddenDirection:
+          $ref: "#/components/schemas/Direction"
+      required: [hypothesis, directions, wellTroddenDirection]
+
+    StepInput:
+      type: object
+      properties:
+        userId:
+          type: integer
+        diveId:
+          type: integer
+        chosenDirection:
+          type: string
+        hypothesisText:
+          type: string
+        directionsJson:
+          $ref: "#/components/schemas/StoredDirections"
+      required: [userId, diveId, chosenDirection, hypothesisText, directionsJson]
+
+    RecapResponse:
+      type: object
+      properties:
+        recap:
+          type: string
+        stepCount:
+          type: integer
+        avgScore:
+          type: ["number", "null"]
+      required: [recap, stepCount, avgScore]
+
+    # --- Recommendations ---
+    Recommendation:
+      type: object
+      properties:
+        id:
+          type: integer
+        diveStepId:
+          type: integer
+        type:
+          type: string
+          enum: [track, album]
+        mbid:
+          type: string
+        title:
+          type: string
+        artist:
+          type: string
+        year:
+          type: ["integer", "null"]
+        narrativeText:
+          type: ["string", "null"]
+        linksJson:
+          oneOf:
+            - $ref: "#/components/schemas/StoredLinks"
+            - type: "null"
+        artworkUrl:
+          type: ["string", "null"]
+        arm:
+          type: string
+          enum: [llm, well_trodden]
+        likelyKnown:
+          type: ["string", "null"]
+        latestRating:
+          oneOf:
+            - $ref: "#/components/schemas/Rating"
+            - type: "null"
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, diveStepId, type, mbid, title, artist, year, narrativeText, linksJson, artworkUrl, arm, likelyKnown, latestRating, createdAt]
+
+    RecommendInput:
+      type: object
+      properties:
+        stepId:
+          type: integer
+        userId:
+          type: integer
+      required: [stepId, userId]
+
+    # --- Streaming links ---
+    StreamingLinks:
+      type: object
+      properties:
+        spotify:
+          type: ["string", "null"]
+        youtube:
+          type: ["string", "null"]
+        appleMusic:
+          type: ["string", "null"]
+        mbid:
+          type: string
+        source:
+          type: string
+          enum: [odesli, search_fallback]
+      required: [spotify, youtube, appleMusic, mbid, source]
+
+    # --- Ratings ---
+    Rating:
+      type: object
+      properties:
+        id:
+          type: integer
+        recId:
+          type: integer
+        listenState:
+          type: string
+          enum: [listened, skipped, known]
+        score:
+          type: ["number", "null"]
+        ratedAt:
+          type: string
+          format: date-time
+      required: [id, recId, listenState, score, ratedAt]
+
+    RatingInput:
+      type: object
+      properties:
+        userId:
+          type: integer
+        recId:
+          type: integer
+        listenState:
+          type: string
+          enum: [listened, skipped, known]
+        score:
+          type: ["number", "null"]
+      required: [userId, recId, listenState]
+
+    PathRating:
+      type: object
+      properties:
+        id:
+          type: integer
+        diveStepId:
+          type: integer
+        score:
+          type: number
+        ratedAt:
+          type: string
+          format: date-time
+      required: [id, diveStepId, score, ratedAt]
+
+    PathRatingInput:
+      type: object
+      properties:
+        userId:
+          type: integer
+        diveStepId:
+          type: integer
+        score:
+          type: number
+          minimum: 1
+          maximum: 5
+      required: [userId, diveStepId, score]
+
+    # --- Metrics ---
+    ArmMetrics:
+      type: object
+      properties:
+        arm:
+          type: string
+        count:
+          type: integer
+        avgScore:
+          type: ["number", "null"]
+        discoveryRate:
+          type: ["number", "null"]
+        knownRate:
+          type: ["number", "null"]
+      required: [arm, count, avgScore, discoveryRate, knownRate]
+
+    DivePathMetric:
+      type: object
+      properties:
+        diveId:
+          type: integer
+        diveName:
+          type: string
+        stepCount:
+          type: integer
+        avgPathScore:
+          type: ["number", "null"]
+      required: [diveId, diveName, stepCount, avgPathScore]
+
+    MetricsResponse:
+      type: object
+      properties:
+        byArm:
+          type: array
+          items:
+            $ref: "#/components/schemas/ArmMetrics"
+        byDive:
+          type: array
+          items:
+            $ref: "#/components/schemas/DivePathMetric"
+        overallDiscoveryRate:
+          type: ["number", "null"]
+        totalRatedRecs:
+          type: integer
+      required: [byArm, byDive, overallDiscoveryRate, totalRatedRecs]

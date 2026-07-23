@@ -1,0 +1,27 @@
+kind = "web"
+previewPath = "/"
+title = "Trails — Magical Musical Submarine"
+version = "1.0.0"
+id = "artifacts/trails"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 21220
+
+[services.development]
+run = "pnpm --filter @workspace/trails run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/trails", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/trails/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "21220"
+BASE_PATH = "/"

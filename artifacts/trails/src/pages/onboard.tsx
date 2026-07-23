@@ -1,0 +1,280 @@
+import { useState, useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { useLocation } from 'wouter';
+import { 
+  useSearchMusic, useAddSeed, useListSeeds, 
+  useGetNextPair, useSubmitPair, 
+  useGeneratePortrait, useUpdatePortrait, useCreateDive,
+  getListSeedsQueryKey, getSearchMusicQueryKey, getGetNextPairQueryKey
+} from '@workspace/api-client-react';
+import { getUserId } from '@/lib/auth';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Loader2, Search, Plus, Check } from 'lucide-react';
+import { Textarea } from '@/components/ui/textarea';
+
+const PROMPTS = [
+  "A song you put on to focus",
+  "Something you loved at 15 and still defend",
+  "What plays when you're driving alone at night",
+  "A track that feels like deep water",
+  "Your personal anthem right now"
+];
+
+export default function OnboardPage() {
+  const [location, setLocation] = useLocation();
+  const userId = getUserId();
+  const [phase, setPhase] = useState<1 | 2 | 3>(1);
+
+  if (!userId) {
+    setTimeout(() => setLocation('/'), 0);
+    return null;
+  }
+
+  return (
+    <div className="min-h-screen flex flex-col p-6 pt-12 max-w-md mx-auto">
+      {phase === 1 && <Phase1Seeding userId={userId} onComplete={() => setPhase(2)} />}
+      {phase === 2 && <Phase2Pairwise userId={userId} onComplete={() => setPhase(3)} />}
+      {phase === 3 && <Phase3Portrait userId={userId} onComplete={(diveId) => setLocation(`/dive/${diveId}`)} />}
+    </div>
+  );
+}
+
+function Phase1Seeding({ userId, onComplete }: { userId: number, onComplete: () => void }) {
+  const queryClient = useQueryClient();
+  const { data: seeds, refetch: refetchSeeds } = useListSeeds({ userId }, { query: { enabled: !!userId, queryKey: getListSeedsQueryKey({ userId }) } });
+  const [promptIdx, setPromptIdx] = useState(0);
+  const [query, setQuery] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedQuery(query), 300);
+    return () => clearTimeout(timer);
+  }, [query]);
+
+  const { data: results, isLoading: isSearching } = useSearchMusic(
+    { userId, q: debouncedQuery, type: 'track' },
+    { query: { enabled: debouncedQuery.length > 2, queryKey: getSearchMusicQueryKey({ userId, q: debouncedQuery, type: 'track' }) } }
+  );
+
+  const addSeed = useAddSeed();
+
+  const handleAddSeed = (mbid: string, title: string, artist: string, year: number | null) => {
+    addSeed.mutate({
+      data: {
+        userId,
+        mbid,
+        type: 'track',
+        title,
+        artist,
+        year,
+        prompt: PROMPTS[promptIdx]
+      }
+    }, {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: getListSeedsQueryKey({ userId }) });
+        setQuery('');
+        setPromptIdx((i) => (i + 1) % PROMPTS.length);
+      }
+    });
+  };
+
+  const seedCount = seeds?.length || 0;
+  const canProceed = seedCount >= 5;
+
+  return (
+    <div className="flex-1 flex flex-col animate-in fade-in duration-700">
+      <div className="flex flex-wrap gap-2 mb-8">
+        {seeds?.map((s) => (
+          <div key={s.id} className="text-xs bg-secondary/50 text-secondary-foreground px-3 py-1 rounded-full border border-border/50">
+            {s.title}
+          </div>
+        ))}
+      </div>
+
+      <div className="flex-1 flex flex-col justify-center">
+        <h2 className="text-2xl font-serif text-primary-foreground mb-6 text-center leading-snug">
+          {PROMPTS[promptIdx]}
+        </h2>
+
+        <div className="relative mb-6">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground w-5 h-5" />
+          <Input 
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search for a track..."
+            className="pl-12 h-14 rounded-full bg-secondary/20 border-primary/20 focus-visible:border-primary text-lg"
+          />
+        </div>
+
+        <div className="flex-1 overflow-y-auto min-h-[200px]">
+          {isSearching && <div className="text-center p-4"><Loader2 className="w-5 h-5 animate-spin mx-auto text-primary" /></div>}
+          {!isSearching && results?.map((r) => (
+            <button 
+              key={r.mbid}
+              onClick={() => handleAddSeed(r.mbid, r.title, r.artist, r.year)}
+              disabled={addSeed.isPending}
+              className="w-full text-left p-4 rounded-xl hover:bg-secondary/40 transition-colors flex items-center justify-between group mb-2 border border-transparent hover:border-border/50"
+            >
+              <div>
+                <p className="font-medium text-primary-foreground">{r.title}</p>
+                <p className="text-sm text-muted-foreground">{r.artist} {r.year ? `· ${r.year}` : ''}</p>
+              </div>
+              <Plus className="w-5 h-5 text-primary opacity-0 group-hover:opacity-100 transition-opacity" />
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="pt-6 mt-auto">
+        <Button 
+          onClick={onComplete}
+          disabled={!canProceed}
+          className="w-full h-14 rounded-full bg-primary text-primary-foreground text-lg"
+        >
+          {canProceed ? "Continue deeper" : `Seed ${5 - seedCount} more to proceed`}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function Phase2Pairwise({ userId, onComplete }: { userId: number, onComplete: () => void }) {
+  const queryClient = useQueryClient();
+  const { data: pair, isLoading, refetch } = useGetNextPair({ userId }, { query: { enabled: !!userId, queryKey: getGetNextPairQueryKey({ userId }) } });
+  const submitPair = useSubmitPair();
+
+  useEffect(() => {
+    if (pair?.done) {
+      onComplete();
+    }
+  }, [pair, onComplete]);
+
+  if (isLoading || !pair) {
+    return <div className="flex-1 flex items-center justify-center"><Loader2 className="w-8 h-8 text-primary animate-spin" /></div>;
+  }
+
+  if (pair.done) return null;
+
+  const handleRank = (result: number) => {
+    submitPair.mutate({
+      data: {
+        userId,
+        aMbid: pair.aMbid!,
+        bMbid: pair.bMbid!,
+        result
+      }
+    }, {
+      onSuccess: () => queryClient.invalidateQueries({ queryKey: getGetNextPairQueryKey({ userId }) })
+    });
+  };
+
+  return (
+    <div className="flex-1 flex flex-col items-center justify-center animate-in fade-in duration-700">
+      <h2 className="text-xl font-mono text-muted-foreground uppercase tracking-widest mb-12 text-center">
+        Which resonates more?
+      </h2>
+      
+      <div className="w-full grid grid-cols-2 gap-4 mb-16">
+        <div className="p-6 rounded-2xl bg-secondary/30 border border-primary/20 text-center flex flex-col justify-center min-h-[140px]">
+          <p className="font-medium text-lg text-primary-foreground mb-1">{pair.aTitle}</p>
+          <p className="text-sm text-muted-foreground">{pair.aArtist}</p>
+        </div>
+        <div className="p-6 rounded-2xl bg-secondary/30 border border-primary/20 text-center flex flex-col justify-center min-h-[140px]">
+          <p className="font-medium text-lg text-primary-foreground mb-1">{pair.bTitle}</p>
+          <p className="text-sm text-muted-foreground">{pair.bArtist}</p>
+        </div>
+      </div>
+
+      <div className="w-full space-y-4">
+        <Button onClick={() => handleRank(-2)} variant="outline" className="w-full h-14 rounded-xl justify-start px-6 border-primary/30 hover:bg-primary/10">
+          Strongly {pair.aTitle}
+        </Button>
+        <Button onClick={() => handleRank(-1)} variant="outline" className="w-full h-14 rounded-xl justify-start px-6 border-border hover:bg-secondary/50 text-muted-foreground">
+          Slightly {pair.aTitle}
+        </Button>
+        <Button onClick={() => handleRank(0)} variant="outline" className="w-full h-14 rounded-xl border-border/50 hover:bg-secondary/30 text-muted-foreground/70">
+          Tie
+        </Button>
+        <Button onClick={() => handleRank(1)} variant="outline" className="w-full h-14 rounded-xl justify-end px-6 border-border hover:bg-secondary/50 text-muted-foreground">
+          Slightly {pair.bTitle}
+        </Button>
+        <Button onClick={() => handleRank(2)} variant="outline" className="w-full h-14 rounded-xl justify-end px-6 border-primary/30 hover:bg-primary/10">
+          Strongly {pair.bTitle}
+        </Button>
+      </div>
+      
+      <p className="mt-8 text-xs font-mono text-muted-foreground/50">
+        Pair {pair.pairIndex} of {pair.totalPairs}
+      </p>
+    </div>
+  );
+}
+
+function Phase3Portrait({ userId, onComplete }: { userId: number, onComplete: (diveId: number) => void }) {
+  const [text, setText] = useState('');
+  const [isGenerated, setIsGenerated] = useState(false);
+  
+  const generatePortrait = useGeneratePortrait();
+  const updatePortrait = useUpdatePortrait();
+  const createDive = useCreateDive();
+
+  useEffect(() => {
+    generatePortrait.mutate(
+      { data: { userId } },
+      { onSuccess: (portrait) => {
+        setText(portrait.text);
+        setIsGenerated(true);
+      }}
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
+
+  const handleFinish = async () => {
+    if (text !== generatePortrait.data?.text) {
+      await updatePortrait.mutateAsync({ data: { userId, text } });
+    }
+    createDive.mutate(
+      { data: { userId, name: 'First Dive' } },
+      { onSuccess: (dive) => onComplete(dive.id) }
+    );
+  };
+
+  if (!isGenerated) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center text-center space-y-6">
+        <div className="w-16 h-16 rounded-full border border-primary/30 flex items-center justify-center animate-float">
+          <Loader2 className="w-6 h-6 text-primary animate-spin" />
+        </div>
+        <p className="font-serif text-xl text-primary-foreground">Analyzing currents...</p>
+        <p className="text-sm font-mono text-muted-foreground uppercase tracking-widest">Drafting your portrait</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex-1 flex flex-col animate-in fade-in zoom-in-95 duration-1000">
+      <h2 className="text-sm font-mono text-muted-foreground uppercase tracking-widest mb-6 text-center">
+        Your Portrait
+      </h2>
+      
+      <div className="flex-1 relative">
+        <Textarea 
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          className="h-full min-h-[400px] bg-secondary/10 border-primary/20 rounded-2xl p-6 font-serif text-lg leading-relaxed text-primary-foreground/90 resize-none focus-visible:ring-primary/50"
+        />
+      </div>
+
+      <div className="pt-8 pb-4">
+        <Button 
+          onClick={handleFinish}
+          disabled={createDive.isPending || updatePortrait.isPending}
+          className="w-full h-14 rounded-full bg-primary text-primary-foreground text-lg shadow-[0_0_20px_hsla(180,80%,40%,0.2)] hover:shadow-[0_0_30px_hsla(180,80%,40%,0.4)] transition-all"
+        >
+          {createDive.isPending ? <Loader2 className="w-5 h-5 animate-spin" /> : "Begin first dive"}
+        </Button>
+      </div>
+    </div>
+  );
+}

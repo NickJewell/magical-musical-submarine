@@ -1,0 +1,178 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap');
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@plugin "@tailwindcss/typography";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-card-border: hsl(var(--card-border));
+
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-popover-border: hsl(var(--popover-border));
+
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-primary-border: var(--primary-border);
+
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-secondary-border: var(--secondary-border);
+
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-muted-border: var(--muted-border);
+
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-accent-border: var(--accent-border);
+
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-destructive-border: var(--destructive-border);
+
+  --font-sans: var(--app-font-sans);
+  --font-serif: var(--app-font-serif);
+  --font-mono: var(--app-font-mono);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+:root {
+  /* Enforce Dark Theme Always */
+  --button-outline: rgba(255, 255, 255, 0.1);
+  --badge-outline: rgba(255, 255, 255, 0.05);
+
+  --opaque-button-border-intensity: 9;
+
+  --elevate-1: rgba(255, 255, 255, 0.04);
+  --elevate-2: rgba(255, 255, 255, 0.09);
+
+  /* Deep ocean background: Very dark slate blue */
+  --background: 220 40% 4%;
+  --foreground: 210 20% 85%;
+
+  /* Dark luminous borders */
+  --border: 215 30% 12%;
+  --input: 215 30% 12%;
+  --ring: 180 80% 50%; /* Bioluminescent cyan */
+
+  --card: 220 40% 6%;
+  --card-foreground: 210 20% 85%;
+  --card-border: 215 30% 12%;
+
+  --popover: 220 40% 4%;
+  --popover-foreground: 210 20% 85%;
+  --popover-border: 215 30% 12%;
+
+  /* Bioluminescent cyan/teal */
+  --primary: 180 80% 40%;
+  --primary-foreground: 220 50% 10%;
+
+  /* Darker murky blue */
+  --secondary: 220 30% 15%;
+  --secondary-foreground: 210 20% 85%;
+
+  --muted: 220 30% 10%;
+  --muted-foreground: 215 20% 60%;
+
+  --accent: 180 50% 15%;
+  --accent-foreground: 180 80% 50%;
+
+  --destructive: 0 60% 40%;
+  --destructive-foreground: 0 0% 100%;
+
+  --sidebar: 220 40% 4%;
+  --sidebar-foreground: 210 20% 85%;
+  --sidebar-border: 215 30% 12%;
+  --sidebar-primary: 180 80% 40%;
+  --sidebar-primary-foreground: 220 50% 10%;
+  --sidebar-accent: 220 30% 15%;
+  --sidebar-accent-foreground: 210 20% 85%;
+  --sidebar-ring: 180 80% 50%;
+
+  --app-font-sans: 'Space Mono', 'Outfit', sans-serif;
+  --app-font-serif: 'Playfair Display', serif;
+  --app-font-mono: 'Space Mono', monospace;
+
+  --radius: 0.75rem;
+
+  --shadow-2xs: 0px 2px 0px 0px hsla(220, 40%, 2%, 0.5);
+  --shadow-xs: 0px 2px 0px 0px hsla(220, 40%, 2%, 0.5);
+  --shadow-sm: 0px 2px 0px 0px hsla(220, 40%, 2%, 0.5), 0px 1px 2px -1px hsla(220, 40%, 2%, 0.5);
+  --shadow: 0px 2px 0px 0px hsla(220, 40%, 2%, 0.5), 0px 1px 2px -1px hsla(220, 40%, 2%, 0.5);
+  --shadow-md: 0px 2px 0px 0px hsla(220, 40%, 2%, 0.5), 0px 2px 4px -1px hsla(220, 40%, 2%, 0.5);
+  --shadow-lg: 0px 2px 0px 0px hsla(220, 40%, 2%, 0.5), 0px 4px 6px -1px hsla(220, 40%, 2%, 0.5);
+  --shadow-xl: 0px 2px 0px 0px hsla(220, 40%, 2%, 0.5), 0px 8px 10px -1px hsla(220, 40%, 2%, 0.5);
+  --shadow-2xl: 0px 2px 0px 0px hsla(220, 40%, 2%, 0.5);
+}
+
+.dark {
+  /* Same as root since we enforce dark theme */
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply font-sans antialiased bg-background text-foreground selection:bg-primary/30;
+    /* Soft noise texture for deep water feel */
+    background-image: radial-gradient(circle at 50% 0%, hsla(180, 80%, 40%, 0.05) 0%, transparent 70%);
+    background-attachment: fixed;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-sans tracking-tight;
+  }
+}
+
+/* Animations for the deep ocean vibe */
+@keyframes ping-sonar {
+  0% { transform: scale(1); opacity: 0.8; }
+  100% { transform: scale(2.5); opacity: 0; }
+}
+.animate-sonar {
+  animation: ping-sonar 3s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+@keyframes float-sub {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+.animate-float {
+  animation: float-sub 6s ease-in-out infinite;
+}
+
+/* Noise overlay */
+.bg-noise {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 50;
+  opacity: 0.03;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+}
+
+/* Base tailwind layers and utilities */
+@layer utilities {
+  input[type='search']::-webkit-search-cancel-button { @apply hidden; }
+  [contenteditable][data-placeholder]:empty::before {
+    content: attr(data-placeholder);
+    color: hsl(var(--muted-foreground));
+    pointer-events: none;
+  }
+}

@@ -18,3 +18,10 @@ expertMode = true
 [postMerge]
 path = "scripts/post-merge.sh"
 timeoutMs = 20000
+
+[userenv]
+
+[userenv.shared]
+APP_BASE_URL = "http://localhost:80"
+OPENROUTER_NARRATE_MODEL = "meta-llama/llama-3.3-70b-instruct"
+OPENROUTER_PROPOSE_MODEL = "deepseek/deepseek-chat"

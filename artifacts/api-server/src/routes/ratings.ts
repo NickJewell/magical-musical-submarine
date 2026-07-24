@@ -43,11 +43,10 @@ router.post("/rate", async (req, res): Promise<void> => {
     return;
   }
 
-  // Validate score is a valid half-step (0.5 increments, 1.0–5.0)
+  // Validate score is 1, 2, or 3
   if (score != null) {
-    const isValidScore = score >= 1.0 && score <= 5.0 && (score * 2) % 1 === 0;
-    if (!isValidScore) {
-      res.status(400).json({ error: "Score must be between 1 and 5 in 0.5 increments" });
+    if (![1, 2, 3].includes(score)) {
+      res.status(400).json({ error: "Score must be 1, 2, or 3" });
       return;
     }
   }
@@ -108,10 +107,9 @@ router.post("/path-rate", async (req, res): Promise<void> => {
     return;
   }
 
-  // Validate score is a valid half-step
-  const isValidScore = score >= 1.0 && score <= 5.0 && (score * 2) % 1 === 0;
-  if (!isValidScore) {
-    res.status(400).json({ error: "Score must be between 1 and 5 in 0.5 increments" });
+  // Validate score is 1, 2, or 3
+  if (![1, 2, 3].includes(score)) {
+    res.status(400).json({ error: "Score must be 1, 2, or 3" });
     return;
   }
 

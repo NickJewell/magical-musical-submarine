@@ -275,7 +275,7 @@ function RecCard({ rec, userId, onRated }: { rec: Recommendation, userId: number
         {showStars && (
           <div className="flex items-center justify-between px-2 animate-in slide-in-from-top-2">
             <span className="text-xs text-muted-foreground">Rating</span>
-            <HalfStarRating score={score} onChange={(s) => handleRate(listenState, s)} />
+            <ThreeStarRating score={score} onChange={(s) => handleRate(listenState, s)} />
           </div>
         )}
 
@@ -313,8 +313,14 @@ function RecCard({ rec, userId, onRated }: { rec: Recommendation, userId: number
   );
 }
 
-/** Half-star rating — supports 0.5 increments from 1.0 to 5.0 */
-function HalfStarRating({
+const STAR_LABELS: Record<number, string> = {
+  1: 'less of this',
+  2: 'middle of the road',
+  3: 'more of this',
+};
+
+/** Three-star rating: 1 = less of this, 2 = middle of the road, 3 = more of this */
+function ThreeStarRating({
   score,
   onChange,
   size = 'sm',
@@ -323,46 +329,32 @@ function HalfStarRating({
   onChange: (s: number) => void;
   size?: 'sm' | 'lg';
 }) {
-  const iconClass = size === 'lg' ? 'w-8 h-8' : 'w-6 h-6';
+  const iconClass = size === 'lg' ? 'w-9 h-9' : 'w-6 h-6';
   return (
-    <div className="flex items-center gap-0.5" role="group" aria-label="Star rating">
-      {[1, 2, 3, 4, 5].map((star) => {
-        const half = star - 0.5;
-        const filledFull = score !== null && score >= star;
-        const filledHalf = score !== null && score >= half && score < star;
-        return (
-          <div key={star} className="relative" style={{ width: size === 'lg' ? 32 : 24, height: size === 'lg' ? 32 : 24 }}>
-            {/* Base empty star */}
-            <Star className={`${iconClass} text-muted-foreground/30 absolute inset-0`} />
-            {/* Half-fill overlay */}
-            {filledHalf && (
-              <div className="absolute inset-0 overflow-hidden" style={{ width: '50%' }}>
-                <Star className={`${iconClass} fill-primary text-primary`} />
-              </div>
-            )}
-            {/* Full-fill overlay */}
-            {filledFull && (
-              <Star className={`${iconClass} fill-primary text-primary absolute inset-0`} />
-            )}
-            {/* Left click = half star (minimum 1.0, so star-1 left half also gives 1.0) */}
-            <button
-              data-testid={`rate-${Math.max(half, 1.0)}`}
-              className="absolute inset-y-0 left-0 w-1/2 cursor-pointer"
-              onClick={() => onChange(Math.max(half, 1.0))}
-              aria-label={`${Math.max(half, 1.0)} stars`}
+    <div className="flex flex-col items-center gap-1.5">
+      <div className="flex items-center gap-2" role="group" aria-label="Star rating">
+        {[1, 2, 3].map((star) => (
+          <button
+            key={star}
+            data-testid={`rate-${star}`}
+            onClick={() => onChange(star)}
+            aria-label={STAR_LABELS[star]}
+            className="transition-transform hover:scale-110 active:scale-95"
+          >
+            <Star
+              className={`${iconClass} transition-colors ${
+                score !== null && score >= star
+                  ? 'fill-primary text-primary'
+                  : 'text-muted-foreground/30 hover:text-muted-foreground/60'
+              }`}
             />
-            {/* Right click = full star */}
-            <button
-              data-testid={`rate-${star}`}
-              className="absolute inset-y-0 right-0 w-1/2 cursor-pointer"
-              onClick={() => onChange(star)}
-              aria-label={`${star} stars`}
-            />
-          </div>
-        );
-      })}
+          </button>
+        ))}
+      </div>
       {score !== null && (
-        <span className="text-xs text-muted-foreground ml-2">{score}/5</span>
+        <span className="text-[10px] font-mono text-primary/70 uppercase tracking-widest">
+          {STAR_LABELS[score]}
+        </span>
       )}
     </div>
   );
@@ -383,7 +375,7 @@ function PathRatingSection({ userId, stepId, onComplete }: { userId: number, ste
         <h3 className="text-lg font-serif text-primary-foreground">How good was this direction?</h3>
         
         <div className="flex justify-center">
-          <HalfStarRating score={score} onChange={handleRate} size="lg" />
+          <ThreeStarRating score={score} onChange={handleRate} size="lg" />
         </div>
 
         {rateStep.isError && (

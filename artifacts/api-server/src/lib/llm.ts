@@ -310,7 +310,7 @@ export async function narrate(opts: {
         .slice(-5)
         .map(
           (r) =>
-            `- "${r.title}" by ${r.artist}: ${r.listenState}${r.score ? ` (${r.score}/5)` : ""}`
+            `- "${r.title}" by ${r.artist}: ${r.listenState}${r.score ? ` (${r.score}/3 — ${r.score === 1 ? "less of this" : r.score === 2 ? "middle of the road" : "more of this"})` : ""}`
         )
         .join("\n")
     : "(no prior ratings)";

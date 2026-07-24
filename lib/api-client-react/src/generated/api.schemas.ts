@@ -393,7 +393,7 @@ export interface PathRatingInput {
   diveStepId: number;
   /**
      * @minimum 1
-     * @maximum 5
+     * @maximum 3
      */
   score: number;
 }

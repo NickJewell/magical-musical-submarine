@@ -534,7 +534,7 @@ export const RateRecResponse = zod.object({
 /**
  * @summary Rate a dive step (path rating)
  */
-export const rateStepBodyScoreMax = 5;
+export const rateStepBodyScoreMax = 3;
 
 
 

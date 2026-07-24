@@ -199,16 +199,27 @@ function RecCard({ rec, userId, onRated, activeRecId, onActivate }: {
   activeRecId: number | null, onActivate: (id: number | null) => void,
 }) {
   const [links, setLinks] = useState(rec.linksJson);
+  // Eagerly fetch links (for artwork) when the rec has none, but stagger by card index
+  // to avoid blasting Odesli with parallel requests and hitting rate limits.
   const [shouldFetchLinks, setShouldFetchLinks] = useState(false);
+  useEffect(() => {
+    if (rec.artworkUrl) return; // already have artwork — no eager fetch needed
+    const delay = (activeRecId === null ? 0 : 200); // only stagger when not in player mode
+    const t = setTimeout(() => setShouldFetchLinks(true), delay);
+    return () => clearTimeout(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  // Links are "complete" only if they already carry embed IDs; stale linksJson from
-  // before §18 was shipped will have spotify/youtube deep-link URLs but no spotifyTrackId
-  // or youtubeVideoId, which means the inline player can't render an embed.
   const linksHaveEmbedIds = !!(
     (links as { spotifyTrackId?: string | null } | null)?.spotifyTrackId ||
     (links as { youtubeVideoId?: string | null } | null)?.youtubeVideoId
   );
-  const needsFetch = !links || !linksHaveEmbedIds;
+  const linksHaveArtwork = !!(links as { artworkUrl?: string | null } | null)?.artworkUrl;
+  // Fetch when: no links, no embed IDs (stale pre-§18 blob), or artwork still missing from both.
+  const needsFetch = !links || !linksHaveEmbedIds || (!linksHaveArtwork && !rec.artworkUrl);
+
+  // Artwork: prefer freshly-resolved links (backfills old recs), then DB value.
+  const displayArtworkUrl = (links as { artworkUrl?: string | null } | null)?.artworkUrl ?? rec.artworkUrl ?? null;
 
   const { data: fetchedLinks, isLoading: isResolvingLinks } = useResolveLinks(
     { mbid: rec.mbid, type: rec.type, title: rec.title, artist: rec.artist },
@@ -228,7 +239,7 @@ function RecCard({ rec, userId, onRated, activeRecId, onActivate }: {
   const [reviewSaved, setReviewSaved] = useState(false);
   const rateRec = useRateRec();
 
-  const handleResolveLinks = () => { if (!links) setShouldFetchLinks(true); };
+  const handleResolveLinks = () => { setShouldFetchLinks(true); };
 
   const handleRate = (state: string, newScore: number | null) => {
     setListenState(state);
@@ -262,9 +273,9 @@ function RecCard({ rec, userId, onRated, activeRecId, onActivate }: {
           <span className="text-base font-mono font-bold text-primary/20 select-none absolute">
             {(rec.artist[0] ?? rec.title[0] ?? '?').toUpperCase()}
           </span>
-          {rec.artworkUrl && (
+          {displayArtworkUrl && (
             <img
-              src={rec.artworkUrl}
+              src={displayArtworkUrl}
               alt=""
               className="w-full h-full object-cover relative"
               onError={(e) => { e.currentTarget.style.display = 'none'; }}

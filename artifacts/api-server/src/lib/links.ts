@@ -150,6 +150,15 @@ async function getCachedEmbedIds(mbid: string): Promise<{
   }
 }
 
+// ---- Helpers ----
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Returns true for real MusicBrainz UUIDs; fake placeholder IDs (e.g. `lastfm:…`) return false. */
+function isRealMbid(mbid: string): boolean {
+  return UUID_RE.test(mbid);
+}
+
 // ---- Main export ----
 
 export async function resolveLinks(
@@ -179,6 +188,23 @@ export async function resolveLinks(
       spotifyTrackId: cached.spotifyTrackId,
       youtubeVideoId: cached.youtubeVideoId,
       artworkUrl:  cached.artworkUrl,
+    };
+  }
+
+  // Fake/placeholder MBIDs (e.g. `lastfm:…`) can't be looked up via MusicBrainz URLs.
+  // Skip Odesli entirely and go straight to iTunes artwork + search-URL fallback.
+  if (!isRealMbid(mbid)) {
+    fetchItunesArtwork(artist, title)
+      .then((url) => url && cacheEmbedIds(mbid, null, null, url))
+      .catch(() => null);
+    return {
+      spotify:        spotifySearchUrl(artist, title),
+      youtube:        youtubeSearchUrl(artist, title),
+      appleMusic:     null,
+      source:         "search_fallback",
+      spotifyTrackId: null,
+      youtubeVideoId: null,
+      artworkUrl:     null,
     };
   }
 

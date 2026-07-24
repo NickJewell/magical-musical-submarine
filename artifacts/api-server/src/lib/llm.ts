@@ -57,8 +57,16 @@ async function chat(
     throw new Error(`OpenRouter error ${res.status}: ${text}`);
   }
 
-  const data = (await res.json()) as OpenRouterResponse;
-  return data.choices[0]?.message.content ?? "";
+  const data = (await res.json()) as OpenRouterResponse & { error?: { message?: string; code?: number } };
+
+  // OpenRouter occasionally returns HTTP 200 with an error body and no choices
+  // (e.g. context-length exceeded, provider overload). Treat this as a hard error.
+  if (!data.choices?.length) {
+    const detail = data.error?.message ?? JSON.stringify(data).slice(0, 300);
+    throw new Error(`OpenRouter returned no choices: ${detail}`);
+  }
+
+  return data.choices[0].message.content ?? "";
 }
 
 // ---- Types ----

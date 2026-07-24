@@ -45,17 +45,27 @@ function DiveContent({ userId, diveId, onNavigate }: { userId: number, diveId: n
     { query: { enabled: showPairwise && !!userId } }
   );
   
+  const [directionsFailed, setDirectionsFailed] = useState(false);
+
   const getDirsMutateRef = useRef(getDirections.mutate);
   getDirsMutateRef.current = getDirections.mutate;
 
   useEffect(() => {
-    if (dive && !directionsReady) {
+    if (dive && !directionsReady && !directionsFailed) {
       getDirsMutateRef.current(
         { data: { userId, diveId } },
-        { onSuccess: () => setDirectionsReady(true) }
+        {
+          onSuccess: () => setDirectionsReady(true),
+          onError: () => setDirectionsFailed(true),
+        }
       );
     }
-  }, [dive, userId, diveId, directionsReady]);
+  }, [dive, userId, diveId, directionsReady, directionsFailed]);
+
+  const handleRetryDirections = () => {
+    setDirectionsFailed(false);
+    getDirections.reset();
+  };
 
   const { data: recap, isLoading: recapLoading } = useLoadRecap(
     { diveId, userId },
@@ -131,6 +141,19 @@ function DiveContent({ userId, diveId, onNavigate }: { userId: number, diveId: n
         <div className="space-y-3 p-5 rounded-2xl bg-secondary/20 border border-border/50">
           <h2 className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest">Previously on this dive</h2>
           <p className="text-sm font-serif text-primary-foreground/80 leading-relaxed">{recap.recap}</p>
+        </div>
+      )}
+
+      {directionsFailed && (
+        <div className="space-y-4 text-center py-8">
+          <p className="text-sm text-muted-foreground">Couldn't reach the surface — the navigation system timed out.</p>
+          <Button
+            variant="outline"
+            className="rounded-full border-primary/30 text-primary hover:bg-primary/10"
+            onClick={handleRetryDirections}
+          >
+            Try again
+          </Button>
         </div>
       )}
 

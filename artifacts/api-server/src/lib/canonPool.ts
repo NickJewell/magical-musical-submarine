@@ -18,6 +18,7 @@ export interface DuelTrack {
   primaryGenre: string | null;
   era: number | null;
   canonWeight: number;
+  artworkUrl: string | null;
 }
 
 export interface DuelPair {
@@ -66,6 +67,7 @@ async function loadPool(): Promise<DuelTrack[]> {
       primaryGenre: canonTracksTable.primaryGenre,
       era: canonTracksTable.era,
       canonWeight: canonTracksTable.canonWeight,
+      artworkUrl: resolvedEntitiesTable.artworkUrl,
     })
     .from(canonTracksTable)
     .innerJoin(resolvedEntitiesTable, eq(canonTracksTable.mbid, resolvedEntitiesTable.mbid));
@@ -78,6 +80,7 @@ async function loadPool(): Promise<DuelTrack[]> {
     primaryGenre: r.primaryGenre,
     era: r.era,
     canonWeight: parseFloat(String(r.canonWeight ?? "0.5")),
+    artworkUrl: r.artworkUrl ?? null,
   }));
 }
 

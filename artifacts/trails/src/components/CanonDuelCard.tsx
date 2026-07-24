@@ -12,8 +12,8 @@ import { cn } from '@/lib/utils';
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
 
 interface DuelPair {
-  aMbid: string; aTitle: string; aArtist: string; aYear: number | null;
-  bMbid: string; bTitle: string; bArtist: string; bYear: number | null;
+  aMbid: string; aTitle: string; aArtist: string; aYear: number | null; aArtworkUrl: string | null;
+  bMbid: string; bTitle: string; bArtist: string; bYear: number | null; bArtworkUrl: string | null;
   strategy: string;
 }
 
@@ -140,8 +140,8 @@ export function CanonDuelCard({ userId, strategy = 'contrastive', onDone }: Prop
 
       {/* Two song cards */}
       <div className="grid grid-cols-2 gap-3">
-        <SongCard label="A" title={pair.aTitle} artist={pair.aArtist} year={pair.aYear} mbid={pair.aMbid} highlighted={pref !== null && pref < 0} />
-        <SongCard label="B" title={pair.bTitle} artist={pair.bArtist} year={pair.bYear} mbid={pair.bMbid} highlighted={pref !== null && pref > 0} />
+        <SongCard label="A" title={pair.aTitle} artist={pair.aArtist} year={pair.aYear} mbid={pair.aMbid} artworkUrl={pair.aArtworkUrl} highlighted={pref !== null && pref < 0} />
+        <SongCard label="B" title={pair.bTitle} artist={pair.bArtist} year={pair.bYear} mbid={pair.bMbid} artworkUrl={pair.bArtworkUrl} highlighted={pref !== null && pref > 0} />
       </div>
 
       {/* 5-point preference axis */}
@@ -223,11 +223,13 @@ interface SongCardProps {
   artist: string;
   year: number | null;
   mbid: string;
+  artworkUrl: string | null;
   highlighted: boolean;
 }
 
-function SongCard({ label, title, artist, year, mbid, highlighted }: SongCardProps) {
+function SongCard({ label, title, artist, year, mbid, artworkUrl, highlighted }: SongCardProps) {
   const listenUrl = `https://musicbrainz.org/recording/${mbid}`;
+  const initial = (artist[0] ?? title[0] ?? '?').toUpperCase();
 
   return (
     <div className={cn(
@@ -238,15 +240,23 @@ function SongCard({ label, title, artist, year, mbid, highlighted }: SongCardPro
     )}>
       {/* Side label */}
       <span className={cn(
-        'absolute top-2 right-2 text-[10px] font-mono font-bold w-5 h-5 rounded-full flex items-center justify-center',
+        'absolute top-2 right-2 text-[10px] font-mono font-bold w-5 h-5 rounded-full flex items-center justify-center z-10',
         highlighted ? 'bg-primary text-primary-foreground' : 'bg-secondary/60 text-muted-foreground',
       )}>
         {label}
       </span>
 
-      {/* Artwork placeholder */}
-      <div className="w-full aspect-square rounded-xl bg-secondary/30 flex items-center justify-center">
-        <Music className="w-8 h-8 text-muted-foreground/30" />
+      {/* Artwork — initials placeholder underneath, image on top */}
+      <div className="w-full aspect-square rounded-xl bg-secondary/30 overflow-hidden relative flex items-center justify-center">
+        <span className="text-2xl font-mono font-bold text-muted-foreground/20 select-none absolute">{initial}</span>
+        {artworkUrl && (
+          <img
+            src={artworkUrl}
+            alt=""
+            className="w-full h-full object-cover relative"
+            onError={(e) => { e.currentTarget.style.display = 'none'; }}
+          />
+        )}
       </div>
 
       {/* Metadata */}

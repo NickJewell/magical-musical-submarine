@@ -36,11 +36,13 @@ router.get("/duel/next", async (req, res): Promise<void> => {
     aArtist: pair.a.artist,
     aYear: pair.a.year,
     aGenre: pair.a.primaryGenre,
+    aArtworkUrl: pair.a.artworkUrl,
     bMbid: pair.b.mbid,
     bTitle: pair.b.title,
     bArtist: pair.b.artist,
     bYear: pair.b.year,
     bGenre: pair.b.primaryGenre,
+    bArtworkUrl: pair.b.artworkUrl,
     strategy: pair.strategy,
   });
 });

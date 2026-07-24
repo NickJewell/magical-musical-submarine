@@ -98,6 +98,7 @@ export async function recommend(opts: { stepId: number; userId: number }) {
     year: number | null;
     narrativeText: string;
     linksJson: unknown;
+    artworkUrl: string | null;
     arm: string;
     likelyKnown: string;
   }> = [];
@@ -201,6 +202,7 @@ export async function recommend(opts: { stepId: number; userId: number }) {
           year: v.year,
           narrativeText: narrative,
           linksJson: links,
+          artworkUrl: links.artworkUrl ?? null,
           arm: "llm",
           likelyKnown: v.likelyKnown,
         };
@@ -228,6 +230,7 @@ export async function recommend(opts: { stepId: number; userId: number }) {
           year: rec.year ?? null,
           narrativeText: rec.narrativeText,
           linksJson: rec.linksJson as unknown as Record<string, unknown>,
+          artworkUrl: rec.artworkUrl ?? null,
           arm: rec.arm,
           likelyKnown: rec.likelyKnown,
         })
@@ -376,6 +379,9 @@ async function buildWellTroddenRec(opts: {
     youtube: `https://www.youtube.com/results?search_query=${encodeURIComponent(`${resolvedArtist} ${resolvedTitle}`)}`,
     appleMusic: null,
     source: "search_fallback" as const,
+    spotifyTrackId: null,
+    youtubeVideoId: null,
+    artworkUrl: null,
   }));
 
   return {
@@ -387,6 +393,7 @@ async function buildWellTroddenRec(opts: {
     year: resolvedYear,
     narrativeText: narrative,
     linksJson: wtLinks,
+    artworkUrl: wtLinks.artworkUrl ?? null,
     arm: "well_trodden",
     likelyKnown: "high",
   };

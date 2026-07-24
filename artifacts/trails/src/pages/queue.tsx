@@ -256,9 +256,25 @@ function RecCard({ rec, userId, onRated, activeRecId, onActivate }: {
       {/* Background glow */}
       <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none" />
 
-      <div>
-        <h3 className="text-2xl font-serif text-primary-foreground leading-tight">{rec.title}</h3>
-        <p className="text-sm font-medium text-primary mt-1">{rec.artist} {rec.year ? <span className="text-muted-foreground font-normal">· {rec.year}</span> : ''}</p>
+      <div className="flex items-start gap-3">
+        {/* Artwork — initials placeholder, image on top when available */}
+        <div className="w-14 h-14 rounded-xl bg-primary/8 border border-primary/10 overflow-hidden relative flex items-center justify-center flex-shrink-0">
+          <span className="text-base font-mono font-bold text-primary/20 select-none absolute">
+            {(rec.artist[0] ?? rec.title[0] ?? '?').toUpperCase()}
+          </span>
+          {rec.artworkUrl && (
+            <img
+              src={rec.artworkUrl}
+              alt=""
+              className="w-full h-full object-cover relative"
+              onError={(e) => { e.currentTarget.style.display = 'none'; }}
+            />
+          )}
+        </div>
+        <div className="flex-1 min-w-0 pt-0.5">
+          <h3 className="text-2xl font-serif text-primary-foreground leading-tight">{rec.title}</h3>
+          <p className="text-sm font-medium text-primary mt-1">{rec.artist} {rec.year ? <span className="text-muted-foreground font-normal">· {rec.year}</span> : ''}</p>
+        </div>
       </div>
 
       {rec.narrativeText && (

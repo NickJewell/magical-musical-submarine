@@ -625,11 +625,13 @@ components:
           type: string
         year:
           type: ["integer", "null"]
+        release:
+          type: ["string", "null"]
         disambiguation:
           type: ["string", "null"]
         score:
           type: number
-      required: [mbid, type, title, artist, year, disambiguation, score]
+      required: [mbid, type, title, artist, year, release, disambiguation, score]
 
     # --- Onboarding ---
     PairResponse:

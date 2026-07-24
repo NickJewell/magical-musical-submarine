@@ -54,7 +54,7 @@ interface MBRecording {
   title: string;
   score: number;
   "artist-credit"?: Array<{ name?: string; artist?: { name: string } }>;
-  releases?: Array<{ date?: string }>;
+  releases?: Array<{ title?: string; date?: string }>;
   genres?: Array<{ name: string }>;
 }
 
@@ -286,7 +286,7 @@ export async function resolve(candidate: MBCandidate): Promise<ResolvedEntity | 
 export async function searchMusicBrainz(
   query: string,
   type: "track" | "album" | "artist" = "track"
-): Promise<Array<{ mbid: string; type: "track" | "album" | "artist"; title: string; artist: string; year: number | null; disambiguation: string | null; score: number }>> {
+): Promise<Array<{ mbid: string; type: "track" | "album" | "artist"; title: string; artist: string; year: number | null; release: string | null; disambiguation: string | null; score: number }>> {
   const encoded = encodeURIComponent(query);
 
   if (type === "track") {
@@ -298,6 +298,7 @@ export async function searchMusicBrainz(
       title: r.title,
       artist: extractArtist(r["artist-credit"]),
       year: extractYear(r.releases?.[0]?.date),
+      release: r.releases?.[0]?.title ?? null,
       disambiguation: null,
       score: r.score / 100,
     }));
@@ -312,6 +313,7 @@ export async function searchMusicBrainz(
       title: r.title,
       artist: extractArtist(r["artist-credit"]),
       year: extractYear(r["first-release-date"]),
+      release: r.title,
       disambiguation: null,
       score: r.score / 100,
     }));

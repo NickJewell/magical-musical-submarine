@@ -72,6 +72,7 @@ export const SearchMusicResponseItem = zod.object({
   "title": zod.string(),
   "artist": zod.string(),
   "year": zod.number().nullable(),
+  "release": zod.string().nullable(),
   "disambiguation": zod.string().nullable(),
   "score": zod.number()
 })

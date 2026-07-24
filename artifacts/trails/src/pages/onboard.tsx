@@ -112,20 +112,40 @@ function Phase1Seeding({ userId, onComplete }: { userId: number, onComplete: () 
           />
         </div>
 
-        <div className="flex-1 overflow-y-auto min-h-[200px]">
+        <div className="flex-1 overflow-y-auto min-h-[200px] space-y-1.5">
           {isSearching && <div className="text-center p-4"><Loader2 className="w-5 h-5 animate-spin mx-auto text-primary" /></div>}
           {!isSearching && results?.map((r) => (
-            <button 
+            <button
               key={r.mbid}
               onClick={() => handleAddSeed(r.mbid, r.title, r.artist, r.year)}
               disabled={addSeed.isPending}
-              className="w-full text-left p-4 rounded-xl hover:bg-secondary/40 transition-colors flex items-center justify-between group mb-2 border border-transparent hover:border-border/50"
+              className="w-full text-left p-4 rounded-xl bg-secondary/20 hover:bg-secondary/50 active:bg-secondary/70 transition-colors flex items-center gap-4 border border-border/30 hover:border-primary/40 group"
             >
-              <div>
-                <p className="font-medium text-primary-foreground">{r.title}</p>
-                <p className="text-sm text-muted-foreground">{r.artist} {r.year ? `· ${r.year}` : ''}</p>
+              {/* Left: text stack */}
+              <div className="flex-1 min-w-0 space-y-0.5">
+                <p className="font-semibold text-base text-foreground truncate leading-tight">
+                  {r.title}
+                </p>
+                <p className="text-sm font-medium text-primary/90 truncate">
+                  {r.artist}
+                </p>
+                {r.release && (
+                  <p className="text-xs text-muted-foreground truncate">
+                    {r.release}
+                  </p>
+                )}
               </div>
-              <Plus className="w-5 h-5 text-primary opacity-0 group-hover:opacity-100 transition-opacity" />
+              {/* Right: year badge + add icon */}
+              <div className="flex items-center gap-2 shrink-0">
+                {r.year && (
+                  <span className="text-xs font-mono text-muted-foreground bg-secondary/60 px-2 py-0.5 rounded-full border border-border/50">
+                    {r.year}
+                  </span>
+                )}
+                <div className="w-7 h-7 rounded-full bg-primary/15 flex items-center justify-center group-hover:bg-primary/30 transition-colors">
+                  <Plus className="w-3.5 h-3.5 text-primary" />
+                </div>
+              </div>
             </button>
           ))}
         </div>

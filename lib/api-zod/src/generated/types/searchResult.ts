@@ -15,6 +15,8 @@ export interface SearchResult {
   /** @nullable */
   year: number | null;
   /** @nullable */
+  release: string | null;
+  /** @nullable */
   disambiguation: string | null;
   score: number;
 }

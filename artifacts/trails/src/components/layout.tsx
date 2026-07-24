@@ -9,7 +9,7 @@ const NAV_ITEMS = [
 ];
 
 // Pages that should show with no chrome at all
-const NO_CHROME = ['/sign-in', '/sign-up', '/onboard'];
+const NO_CHROME = ['/sign-in', '/sign-up'];
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();

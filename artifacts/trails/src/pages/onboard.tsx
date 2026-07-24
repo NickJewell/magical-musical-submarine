@@ -384,13 +384,22 @@ function Phase1Seeding({ userId, onComplete }: { userId: number, onComplete: () 
         </div>
       </div>
 
-      <div className="pt-6 mt-auto">
+      <div className="pt-6 mt-auto space-y-3">
+        {canProceed && (
+          <p className="text-center text-xs font-mono text-primary/70 uppercase tracking-widest animate-pulse">
+            Ready — tap below to build your taste portrait
+          </p>
+        )}
         <Button
           onClick={onComplete}
           disabled={!canProceed}
-          className="w-full h-14 rounded-full bg-primary text-primary-foreground text-lg"
+          className={`w-full h-14 rounded-full text-lg transition-all duration-300 ${
+            canProceed
+              ? 'bg-primary text-primary-foreground shadow-[0_0_24px_hsla(180,80%,40%,0.35)] hover:shadow-[0_0_32px_hsla(180,80%,40%,0.5)]'
+              : 'bg-secondary/40 text-muted-foreground cursor-not-allowed'
+          }`}
         >
-          {canProceed ? "Continue deeper" : `Seed ${5 - seedCount} more to proceed`}
+          {canProceed ? 'Build my taste portrait →' : `Add ${5 - seedCount} more track${5 - seedCount === 1 ? '' : 's'} to continue`}
         </Button>
       </div>
     </div>

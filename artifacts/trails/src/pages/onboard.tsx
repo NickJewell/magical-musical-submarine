@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useLocation } from 'wouter';
+import { useClerk } from '@clerk/react';
 import { 
   useSearchMusic, useAddSeed, useListSeeds, 
   useGetNextPair,
@@ -201,9 +202,12 @@ function buildPromptSequence() {
   }));
 }
 
+const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
+
 export default function OnboardPage() {
   const [, setLocation] = useLocation();
   const { localUserId: userId, isLoading } = useLocalUser();
+  const { signOut } = useClerk();
   const [phase, setPhase] = useState<1 | 2 | 3>(1);
 
   if (isLoading) return (
@@ -217,7 +221,16 @@ export default function OnboardPage() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col p-6 pt-12 max-w-md mx-auto">
+    <div className="min-h-screen flex flex-col p-6 pt-6 max-w-md mx-auto">
+      {/* Top bar with sign-out */}
+      <div className="flex justify-end mb-6">
+        <button
+          onClick={() => signOut({ redirectUrl: basePath || '/' })}
+          className="rounded-full bg-slate-600 hover:bg-slate-500 text-white text-xs font-mono uppercase tracking-widest px-4 py-2 transition-colors"
+        >
+          Sign out
+        </button>
+      </div>
       {phase === 1 && <Phase1Seeding userId={userId} onComplete={() => setPhase(2)} />}
       {phase === 2 && <Phase2Pairwise userId={userId} onComplete={() => setPhase(3)} />}
       {phase === 3 && <Phase3Portrait userId={userId} onComplete={(diveId) => setLocation(`/dive/${diveId}`)} />}

@@ -347,8 +347,11 @@ export async function searchMusicBrainz(
         artist: t.artist,
       }));
 
-      // Resolve missing MBIDs via MusicBrainz in parallel
-      const missing = candidates.filter((c) => !c.mbid);
+      // Resolve missing MBIDs via MusicBrainz — cap to avoid burst latency.
+      // MusicBrainz throttles to ~1 req/s; resolving all 10 missing IDs serially
+      // adds ~10 s of wall-clock time before the caller sees any results.
+      const MAX_MBID_LOOKUPS = 4;
+      const missing = candidates.filter((c) => !c.mbid).slice(0, MAX_MBID_LOOKUPS);
       if (missing.length > 0) {
         await Promise.all(
           missing.map(async (c) => {
@@ -356,9 +359,14 @@ export async function searchMusicBrainz(
               `recording:"${c.title}" AND artist:"${c.artist}"`
             );
             const mbUrl = `${MB_BASE}/recording?query=${q}&limit=1&fmt=json`;
-            const mbData = await httpGet<MBSearchResponse>(mbUrl, { timeoutMs });
-            const rec = mbData.recordings?.[0];
-            if (rec) c.mbid = rec.id;
+            try {
+              const mbData = await httpGet<MBSearchResponse>(mbUrl, { timeoutMs });
+              const rec = mbData.recordings?.[0];
+              if (rec) c.mbid = rec.id;
+            } catch (err) {
+              // Individual lookup failure — skip this track, keep the rest
+              logger.warn({ err, title: c.title, artist: c.artist }, "MBID lookup failed, skipping");
+            }
           })
         );
       }

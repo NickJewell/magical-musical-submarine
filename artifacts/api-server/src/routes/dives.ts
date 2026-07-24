@@ -166,6 +166,7 @@ router.get("/dive/detail", async (req, res): Promise<void> => {
                   recId: latestRating.recId,
                   listenState: latestRating.listenState,
                   score: latestRating.score != null ? parseFloat(String(latestRating.score)) : null,
+                  reviewText: latestRating.reviewText ?? null,
                   ratedAt: latestRating.ratedAt.toISOString(),
                 }
               : null,

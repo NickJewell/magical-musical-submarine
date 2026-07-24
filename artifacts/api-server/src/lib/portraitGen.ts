@@ -63,9 +63,9 @@ async function loadRecentRatings(userId: number, limit = 30) {
 
   const ratingEvents = events.filter((e) => e.kind === "rating").slice(0, limit);
 
-  const results: Array<{ title: string; artist: string; listenState: string; score: number | null }> = [];
+  const results: Array<{ title: string; artist: string; listenState: string; score: number | null; reviewText?: string | null }> = [];
   for (const ev of ratingEvents) {
-    const payload = ev.payloadJson as { recId?: number; listenState?: string; score?: number | null };
+    const payload = ev.payloadJson as { recId?: number; listenState?: string; score?: number | null; reviewText?: string | null };
     if (!payload.recId || !payload.listenState) continue;
     const [rec] = await db
       .select({ title: recommendationsTable.title, artist: recommendationsTable.artist })
@@ -78,6 +78,7 @@ async function loadRecentRatings(userId: number, limit = 30) {
       artist: rec.artist,
       listenState: payload.listenState,
       score: payload.score != null ? Number(payload.score) : null,
+      reviewText: payload.reviewText ?? null,
     });
   }
   return results;

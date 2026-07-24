@@ -267,7 +267,7 @@ Generate 3 named themed directions (contrastive) and the well-trodden direction.
 export async function generatePortrait(opts: {
   seeds: Array<{ title: string; artist: string; year: number | null; prompt: string | null }>;
   pairChoices: Array<{ winner: string; loser: string; strength: number }>;
-  recentRatings?: Array<{ title: string; artist: string; listenState: string; score: number | null }>;
+  recentRatings?: Array<{ title: string; artist: string; listenState: string; score: number | null; reviewText?: string | null }>;
   priorPortrait?: string | null;
 }): Promise<string> {
   const { seeds, pairChoices, recentRatings, priorPortrait } = opts;
@@ -306,7 +306,8 @@ Output rules:
         const scoreLabel = r.score === 1 ? " (1/3 — less of this)"
           : r.score === 2 ? " (2/3 — middle ground)"
           : r.score === 3 ? " (3/3 — more of this)" : "";
-        return `- "${r.title}" by ${r.artist}: ${r.listenState}${scoreLabel}`;
+        const note = r.reviewText ? ` — note: "${r.reviewText}"` : "";
+        return `- "${r.title}" by ${r.artist}: ${r.listenState}${scoreLabel}${note}`;
       }).join("\n")
     : "";
 

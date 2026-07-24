@@ -21,6 +21,7 @@ interface Song {
   artist: string;
   score: number | null;
   listenState: string | null;
+  reviewText: string | null;
   arm: string;
   linksJson: Record<string, string | null> | null;
   narrativeText: string | null;
@@ -107,6 +108,9 @@ function SongRow({ song, onOpen }: { song: Song; onOpen: (s: Song) => void }) {
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium text-foreground truncate leading-snug">{song.title}</p>
         <p className="text-xs text-muted-foreground truncate">{song.artist}</p>
+        {song.reviewText && (
+          <p className="text-xs text-muted-foreground/70 italic mt-0.5 line-clamp-2">{song.reviewText}</p>
+        )}
       </div>
       <Stars score={song.score} />
     </button>

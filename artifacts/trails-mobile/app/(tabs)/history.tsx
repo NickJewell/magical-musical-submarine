@@ -111,6 +111,13 @@ function HistoryRecCard({ rec }: { rec: Recommendation }) {
           {rec.narrativeText}
         </Text>
       ) : null}
+
+      {/* User note — shown in italics next to the track */}
+      {rec.latestRating?.reviewText ? (
+        <Text style={[hStyles.userNote, { color: colors.mutedForeground }]} numberOfLines={2}>
+          "{rec.latestRating.reviewText}"
+        </Text>
+      ) : null}
     </View>
   );
 }
@@ -614,4 +621,5 @@ const hStyles = StyleSheet.create({
   recTitle: { fontSize: 15, fontFamily: 'Inter_600SemiBold' },
   recArtist: { fontSize: 13 },
   narrative: { fontSize: 12, lineHeight: 17, fontStyle: 'italic' },
+  userNote: { fontSize: 12, lineHeight: 17, fontStyle: 'italic', opacity: 0.75 },
 });

@@ -60,18 +60,20 @@ router.get("/timeline", async (req, res) => {
           recId:       ratingsTable.recId,
           score:       ratingsTable.score,
           listenState: ratingsTable.listenState,
+          reviewText:  ratingsTable.reviewText,
         })
         .from(ratingsTable)
         .where(inArray(ratingsTable.recId, recIds))
         .orderBy(desc(ratingsTable.ratedAt))
     : [];
 
-  const latestRating = new Map<number, { score: number | null; listenState: string }>();
+  const latestRating = new Map<number, { score: number | null; listenState: string; reviewText: string | null }>();
   for (const r of allRatings) {
     if (!latestRating.has(r.recId)) {
       latestRating.set(r.recId, {
         score: r.score != null ? parseFloat(String(r.score)) : null,
         listenState: r.listenState,
+        reviewText: r.reviewText ?? null,
       });
     }
   }
@@ -118,6 +120,7 @@ router.get("/timeline", async (req, res) => {
           artist:        rec.artist,
           score:         rating?.score ?? null,
           listenState:   rating?.listenState ?? null,
+          reviewText:    rating?.reviewText ?? null,
           arm:           rec.arm,
           linksJson:     rec.linksJson ?? null,
           narrativeText: rec.narrativeText ?? null,

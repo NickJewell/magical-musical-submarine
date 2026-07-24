@@ -83,12 +83,18 @@ async function l2Set(key: string, body: unknown, ttlMs: number): Promise<void> {
   }
 }
 
-/** Purge rows that have already expired (run occasionally to keep the table small). */
-export async function purgeExpiredHttpCache(): Promise<void> {
+/** Purge rows that have already expired (run occasionally to keep the table small).
+ *  Returns the number of rows deleted. */
+export async function purgeExpiredHttpCache(): Promise<number> {
   try {
-    await db.delete(httpCacheTable).where(lt(httpCacheTable.expiresAt, new Date()));
+    const result = await db
+      .delete(httpCacheTable)
+      .where(lt(httpCacheTable.expiresAt, new Date()))
+      .returning({ key: httpCacheTable.key });
+    return result.length;
   } catch (err) {
     logger.warn({ err }, "Failed to purge expired http_cache rows");
+    return 0;
   }
 }
 

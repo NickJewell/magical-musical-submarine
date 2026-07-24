@@ -72,23 +72,30 @@ function pickOdesliThumbnail(data: OdesliResponse): string | null {
   return null;
 }
 
-/** iTunes Search API fallback — upscales artworkUrl100 to 500×500. Non-throwing. */
-async function fetchItunesArtwork(artist: string, title: string): Promise<string | null> {
+interface ItunesData {
+  artworkUrl:   string | null;
+  trackViewUrl: string | null; // Apple Music URL — a first-class Odesli source
+}
+
+/** iTunes Search API — returns artwork (upscaled) and Apple Music track URL. Non-throwing. */
+async function fetchItunesData(artist: string, title: string): Promise<ItunesData> {
   try {
     const term = encodeURIComponent(`${artist} ${title}`);
-    interface ItunesResp { results?: Array<{ artworkUrl100?: string }> }
+    interface ItunesResp { results?: Array<{ artworkUrl100?: string; trackViewUrl?: string }> }
     const data = await httpGet<ItunesResp>(
       `https://itunes.apple.com/search?term=${term}&entity=song&media=music&limit=1`,
       {
-        cacheKey: `itunes:art:${artist.toLowerCase()}:${title.toLowerCase()}`,
+        cacheKey: `itunes:${artist.toLowerCase()}:${title.toLowerCase()}`,
         cacheTtlMs: 30 * 24 * 60 * 60 * 1000,
       },
     );
-    const raw = data.results?.[0]?.artworkUrl100;
-    if (!raw) return null;
-    return raw.replace(/\d+x\d+bb/, "500x500bb");
+    const result = data.results?.[0];
+    return {
+      artworkUrl:   result?.artworkUrl100?.replace(/\d+x\d+bb/, "500x500bb") ?? null,
+      trackViewUrl: result?.trackViewUrl ?? null,
+    };
   } catch {
-    return null;
+    return { artworkUrl: null, trackViewUrl: null };
   }
 }
 
@@ -176,8 +183,8 @@ export async function resolveLinks(
   if (cached && (cached.spotifyTrackId || cached.youtubeVideoId)) {
     // Backfill artwork async if still missing
     if (!cached.artworkUrl) {
-      fetchItunesArtwork(artist, title)
-        .then((url) => url && cacheEmbedIds(mbid, null, null, url))
+      fetchItunesData(artist, title)
+        .then(({ artworkUrl }) => artworkUrl && cacheEmbedIds(mbid, null, null, artworkUrl))
         .catch(() => null);
     }
     return {
@@ -194,8 +201,8 @@ export async function resolveLinks(
   // Fake/placeholder MBIDs (e.g. `lastfm:…`) can't be looked up via MusicBrainz URLs.
   // Skip Odesli entirely and go straight to iTunes artwork + search-URL fallback.
   if (!isRealMbid(mbid)) {
-    fetchItunesArtwork(artist, title)
-      .then((url) => url && cacheEmbedIds(mbid, null, null, url))
+    fetchItunesData(artist, title)
+      .then(({ artworkUrl }) => artworkUrl && cacheEmbedIds(mbid, null, null, artworkUrl))
       .catch(() => null);
     return {
       spotify:        spotifySearchUrl(artist, title),
@@ -222,7 +229,7 @@ export async function resolveLinks(
 
     // Persist + backfill artwork asynchronously — never block the response
     (async () => {
-      const finalArtwork = artworkUrl ?? await fetchItunesArtwork(artist, title);
+      const finalArtwork = artworkUrl ?? (await fetchItunesData(artist, title)).artworkUrl;
       await cacheEmbedIds(mbid, spotifyTrackId, youtubeVideoId, finalArtwork);
     })().catch(() => null);
 
@@ -236,13 +243,42 @@ export async function resolveLinks(
       artworkUrl,
     };
   } catch (err) {
-    logger.warn({ err, mbid }, "Odesli failed, falling back to search URLs");
+    logger.warn({ err, mbid }, "Odesli MusicBrainz lookup failed — retrying via iTunes/Apple Music");
   }
 
-  // Odesli failed — try iTunes artwork async so it's ready next time
-  fetchItunesArtwork(artist, title)
-    .then((url) => url && cacheEmbedIds(mbid, null, null, url))
-    .catch(() => null);
+  // Odesli failed (track not found via MusicBrainz URL).
+  // Fallback: iTunes search → Apple Music URL → Odesli again.
+  // Apple Music is a first-class Odesli source and resolves to Spotify track IDs reliably.
+  try {
+    const { artworkUrl: itunesArtwork, trackViewUrl } = await fetchItunesData(artist, title);
+    if (trackViewUrl) {
+      const itunesCacheKey = `links:am:${artist.toLowerCase()}:${title.toLowerCase()}`;
+      const data2 = await httpGet<OdesliResponse>(
+        `${ODESLI_BASE}?url=${encodeURIComponent(trackViewUrl)}&userCountry=US`,
+        { cacheKey: itunesCacheKey, cacheTtlMs: 7 * 24 * 60 * 60 * 1000 },
+      );
+      const platform2      = data2.linksByPlatform ?? {};
+      const spotifyTrackId = platform2.spotify?.url ? parseSpotifyTrackId(platform2.spotify.url) : null;
+      const youtubeVideoId = platform2.youtube?.url ? parseYouTubeVideoId(platform2.youtube.url) : null;
+      const artworkUrl     = pickOdesliThumbnail(data2) ?? itunesArtwork;
+
+      cacheEmbedIds(mbid, spotifyTrackId, youtubeVideoId, artworkUrl).catch(() => null);
+
+      return {
+        spotify:     platform2.spotify?.url    ?? spotifySearchUrl(artist, title),
+        youtube:     platform2.youtube?.url    ?? youtubeSearchUrl(artist, title),
+        appleMusic:  platform2.appleMusic?.url ?? trackViewUrl,
+        source:      "odesli",
+        spotifyTrackId,
+        youtubeVideoId,
+        artworkUrl,
+      };
+    }
+    // iTunes found nothing — cache artwork only and return search URLs
+    if (itunesArtwork) cacheEmbedIds(mbid, null, null, itunesArtwork).catch(() => null);
+  } catch (err2) {
+    logger.warn({ err2, mbid }, "iTunes/Apple Music Odesli fallback also failed");
+  }
 
   return {
     spotify:        spotifySearchUrl(artist, title),

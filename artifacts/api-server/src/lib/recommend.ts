@@ -7,13 +7,16 @@
 import { db, seedsTable, portraitsTable, diveStepsTable, recommendationsTable, ratingsTable, tasteEventsTable, divesTable } from "@workspace/db";
 import { eq, desc } from "drizzle-orm";
 import { enrichFromSeeds, type EnrichResult } from "./enrich";
-import { resolve } from "./musicbrainz";
+import { resolve, MB_REQUEST_TIMEOUT_MS } from "./musicbrainz";
 import { resolveLinks } from "./links";
 import { propose, narrate } from "./llm";
 import { logger } from "./logger";
 
 const MAX_CANDIDATES = 7;
 const TARGET_RECS = 3;
+
+/** Total time budget for the full Propose→Resolve pipeline (ms). */
+const PIPELINE_BUDGET_MS = 30_000;
 
 export async function recommend(opts: { stepId: number; userId: number }) {
   const { stepId, userId } = opts;
@@ -110,6 +113,12 @@ export async function recommend(opts: { stepId: number; userId: number }) {
     likelyKnown: string;
   };
 
+  const pipelineStart = Date.now();
+
+  function remainingBudgetMs(): number {
+    return PIPELINE_BUDGET_MS - (Date.now() - pipelineStart);
+  }
+
   async function runProposalRound(broader: boolean): Promise<VerifiedRec[]> {
     const candidates = await propose({
       portraitText,
@@ -124,9 +133,18 @@ export async function recommend(opts: { stepId: number; userId: number }) {
     const roundVerified: VerifiedRec[] = [];
     for (const c of candidates) {
       if (roundVerified.length >= TARGET_RECS) break;
-      const resolved = await resolve(c);
+
+      const budget = remainingBudgetMs();
+      if (budget <= 0) {
+        logger.warn({ stepId, verified: roundVerified.length }, "Pipeline budget exhausted — stopping resolve loop early");
+        break;
+      }
+
+      // Use whichever is smaller: the per-request default or whatever budget remains
+      const effectiveTimeout = Math.min(MB_REQUEST_TIMEOUT_MS, budget);
+      const resolved = await resolve(c, effectiveTimeout);
       if (!resolved) {
-        // Similarity scores are logged inside musicbrainz.ts with candidate + scores
+        // Similarity-gate rejections and timeout errors are both logged inside musicbrainz.ts
         continue;
       }
       roundVerified.push({
@@ -146,11 +164,15 @@ export async function recommend(opts: { stepId: number; userId: number }) {
 
   if (verified.length === 0) {
     logger.warn({ stepId }, "No LLM candidates passed MusicBrainz gate on first round — retrying with broader prompt");
-    verified = await runProposalRound(true);
-    if (verified.length === 0) {
-      logger.warn({ stepId }, "No LLM candidates passed MusicBrainz gate after broader retry — step will have only control-arm rec");
+    if (remainingBudgetMs() > 0) {
+      verified = await runProposalRound(true);
+      if (verified.length === 0) {
+        logger.warn({ stepId }, "No LLM candidates passed MusicBrainz gate after broader retry — step will have only control-arm rec");
+      } else {
+        logger.info({ stepId, count: verified.length }, "Broader retry succeeded");
+      }
     } else {
-      logger.info({ stepId, count: verified.length }, "Broader retry succeeded");
+      logger.warn({ stepId }, "Pipeline budget exhausted before broader retry — step will have only control-arm rec");
     }
   }
 

@@ -144,8 +144,12 @@ export function decide(
 
 // ---- resolve() — the anti-hallucination gate ----
 
+/** Default per-request timeout for MusicBrainz HTTP calls (ms). */
+export const MB_REQUEST_TIMEOUT_MS = 8_000;
+
 export async function resolveRecording(
-  candidate: MBCandidate
+  candidate: MBCandidate,
+  timeoutMs = MB_REQUEST_TIMEOUT_MS
 ): Promise<ResolvedEntity | null> {
   const query = encodeURIComponent(
     `recording:"${candidate.title}" AND artist:"${candidate.artist}"`
@@ -155,9 +159,14 @@ export async function resolveRecording(
 
   let data: MBSearchResponse;
   try {
-    data = await httpGet<MBSearchResponse>(url, { cacheKey });
+    data = await httpGet<MBSearchResponse>(url, { cacheKey, timeoutMs });
   } catch (err) {
-    logger.warn({ err, candidate }, "MusicBrainz search failed");
+    const isTimeout = err instanceof Error && (err.name === "AbortError" || err.message.includes("aborted"));
+    if (isTimeout) {
+      logger.warn({ candidate, timeoutMs }, "MusicBrainz resolveRecording timed out");
+    } else {
+      logger.warn({ err, candidate }, "MusicBrainz search failed");
+    }
     return null;
   }
 
@@ -179,11 +188,12 @@ export async function resolveRecording(
   }
 
   // Enrich with relationships
-  return enrichEntity(result.mbid, "recording", result.title, result.artist, result.year);
+  return enrichEntity(result.mbid, "recording", result.title, result.artist, result.year, timeoutMs);
 }
 
 export async function resolveReleaseGroup(
-  candidate: MBCandidate
+  candidate: MBCandidate,
+  timeoutMs = MB_REQUEST_TIMEOUT_MS
 ): Promise<ResolvedEntity | null> {
   const query = encodeURIComponent(
     `release:"${candidate.title}" AND artist:"${candidate.artist}"`
@@ -193,9 +203,14 @@ export async function resolveReleaseGroup(
 
   let data: MBSearchResponse;
   try {
-    data = await httpGet<MBSearchResponse>(url, { cacheKey });
+    data = await httpGet<MBSearchResponse>(url, { cacheKey, timeoutMs });
   } catch (err) {
-    logger.warn({ err, candidate }, "MusicBrainz search failed");
+    const isTimeout = err instanceof Error && (err.name === "AbortError" || err.message.includes("aborted"));
+    if (isTimeout) {
+      logger.warn({ candidate, timeoutMs }, "MusicBrainz resolveReleaseGroup timed out");
+    } else {
+      logger.warn({ err, candidate }, "MusicBrainz search failed");
+    }
     return null;
   }
 
@@ -213,7 +228,7 @@ export async function resolveReleaseGroup(
     return null;
   }
 
-  return enrichEntity(result.mbid, "release-group", result.title, result.artist, result.year);
+  return enrichEntity(result.mbid, "release-group", result.title, result.artist, result.year, timeoutMs);
 }
 
 async function enrichEntity(
@@ -221,7 +236,8 @@ async function enrichEntity(
   type: string,
   title: string,
   artist: string,
-  year: number | null
+  year: number | null,
+  timeoutMs = MB_REQUEST_TIMEOUT_MS
 ): Promise<ResolvedEntity> {
   // Check DB cache first
   const existing = await db
@@ -248,9 +264,14 @@ async function enrichEntity(
 
   let enriched: unknown = {};
   try {
-    enriched = await httpGet(url, { cacheKey: `mb:enrich:${mbid}` });
+    enriched = await httpGet(url, { cacheKey: `mb:enrich:${mbid}`, timeoutMs });
   } catch (err) {
-    logger.warn({ err, mbid }, "MusicBrainz enrich failed, using search result");
+    const isTimeout = err instanceof Error && (err.name === "AbortError" || err.message.includes("aborted"));
+    if (isTimeout) {
+      logger.warn({ mbid, timeoutMs }, "MusicBrainz enrich timed out, using search result");
+    } else {
+      logger.warn({ err, mbid }, "MusicBrainz enrich failed, using search result");
+    }
   }
 
   // Store in DB cache
@@ -273,11 +294,14 @@ async function enrichEntity(
   return { mbid, type, title, artist, year, relationships: enriched };
 }
 
-export async function resolve(candidate: MBCandidate): Promise<ResolvedEntity | null> {
+export async function resolve(
+  candidate: MBCandidate,
+  timeoutMs = MB_REQUEST_TIMEOUT_MS
+): Promise<ResolvedEntity | null> {
   if (candidate.type === "track") {
-    return resolveRecording(candidate);
+    return resolveRecording(candidate, timeoutMs);
   } else {
-    return resolveReleaseGroup(candidate);
+    return resolveReleaseGroup(candidate, timeoutMs);
   }
 }
 

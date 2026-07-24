@@ -96,13 +96,15 @@ export interface FetchOptions {
   cacheKey?: string;
   cacheTtlMs?: number;
   retries?: number;
+  /** Per-request abort timeout in milliseconds. If the fetch doesn't complete within this window, it is aborted and the attempt counts as a failure. */
+  timeoutMs?: number;
 }
 
 export async function httpGet<T>(
   url: string,
   opts: FetchOptions = {}
 ): Promise<T> {
-  const { cacheKey, cacheTtlMs = CACHE_TTL_MS, retries = 3 } = opts;
+  const { cacheKey, cacheTtlMs = CACHE_TTL_MS, retries = 3, timeoutMs } = opts;
 
   // L1 check (in-memory)
   if (cacheKey) {
@@ -131,12 +133,26 @@ export async function httpGet<T>(
       await new Promise((r) => setTimeout(r, 1000 * attempt));
     }
     try {
-      const res = await fetch(url, {
-        headers: {
-          "User-Agent": USER_AGENT,
-          Accept: "application/json",
-        },
-      });
+      let signal: AbortSignal | undefined;
+      let abortTimer: ReturnType<typeof setTimeout> | undefined;
+      if (timeoutMs) {
+        const controller = new AbortController();
+        signal = controller.signal;
+        abortTimer = setTimeout(() => controller.abort(), timeoutMs);
+      }
+
+      let res: Response;
+      try {
+        res = await fetch(url, {
+          headers: {
+            "User-Agent": USER_AGENT,
+            Accept: "application/json",
+          },
+          signal,
+        });
+      } finally {
+        if (abortTimer !== undefined) clearTimeout(abortTimer);
+      }
 
       if (res.status === 429 || res.status === 503) {
         const retryAfter = parseInt(res.headers.get("Retry-After") ?? "2", 10);
@@ -160,7 +176,14 @@ export async function httpGet<T>(
       return body;
     } catch (err) {
       lastError = err as Error;
-      logger.warn({ err, url, attempt }, "HTTP request failed");
+      const isTimeout =
+        (err instanceof Error && err.name === "AbortError") ||
+        (err instanceof Error && err.message.includes("aborted"));
+      if (isTimeout) {
+        logger.warn({ url, attempt, timeoutMs }, "HTTP request timed out (AbortError)");
+      } else {
+        logger.warn({ err, url, attempt }, "HTTP request failed");
+      }
     }
   }
 

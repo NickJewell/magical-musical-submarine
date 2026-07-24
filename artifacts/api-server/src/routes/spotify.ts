@@ -17,8 +17,6 @@ function requireSpotify(req: import("express").Request, res: import("express").R
   if (!SPOTIFY_ENABLED) return res.status(404).json({ error: "Spotify export not enabled" });
   next();
 }
-router.use(requireSpotify);
-
 // Temporary in-memory PKCE store (codeVerifier keyed by state, auto-expires after 15 min)
 const pkceStore = new Map<string, string>();
 
@@ -26,7 +24,7 @@ const pkceStore = new Map<string, string>();
  * GET /api/spotify/status
  * Returns { enabled, connected, spotifyUserId? }
  */
-router.get("/spotify/status", async (req, res) => {
+router.get("/spotify/status", requireSpotify, async (req, res) => {
   const userId = Number(req.query.userId);
   if (!userId) return res.status(400).json({ error: "userId required" });
 
@@ -47,7 +45,7 @@ router.get("/spotify/status", async (req, res) => {
  * GET /api/spotify/connect?userId=<n>
  * Redirects to Spotify OAuth.
  */
-router.get("/spotify/connect", (req, res) => {
+router.get("/spotify/connect", requireSpotify, (req, res) => {
   const userId = Number(req.query.userId);
   if (!userId) return res.status(400).json({ error: "userId required" });
 
@@ -63,7 +61,7 @@ router.get("/spotify/connect", (req, res) => {
  * GET /api/spotify/callback?code=&state=
  * Exchanges code for tokens, stores them, redirects to app.
  */
-router.get("/spotify/callback", async (req, res) => {
+router.get("/spotify/callback", requireSpotify, async (req, res) => {
   const { code, state, error } = req.query as Record<string, string>;
 
   if (error) {
@@ -115,7 +113,7 @@ router.get("/spotify/callback", async (req, res) => {
  * POST /api/spotify/export-path
  * Body: { userId, diveStepId, visibility? }
  */
-router.post("/spotify/export-path", async (req, res) => {
+router.post("/spotify/export-path", requireSpotify, async (req, res) => {
   const { userId, diveStepId, visibility = "private" } = req.body as {
     userId: number; diveStepId: number; visibility?: "private" | "public";
   };
@@ -140,7 +138,7 @@ router.post("/spotify/export-path", async (req, res) => {
  * DELETE /api/spotify/disconnect?userId=<n>
  * Removes stored tokens.
  */
-router.delete("/spotify/disconnect", async (req, res) => {
+router.delete("/spotify/disconnect", requireSpotify, async (req, res) => {
   const userId = Number(req.query.userId);
   if (!userId) return res.status(400).json({ error: "userId required" });
   await db.delete(spotifyAccountsTable).where(eq(spotifyAccountsTable.userId, userId));

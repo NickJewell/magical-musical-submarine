@@ -200,18 +200,27 @@ function RecCard({ rec, userId, onRated, activeRecId, onActivate }: {
 }) {
   const [links, setLinks] = useState(rec.linksJson);
   const [shouldFetchLinks, setShouldFetchLinks] = useState(false);
-  
+
+  // Links are "complete" only if they already carry embed IDs; stale linksJson from
+  // before §18 was shipped will have spotify/youtube deep-link URLs but no spotifyTrackId
+  // or youtubeVideoId, which means the inline player can't render an embed.
+  const linksHaveEmbedIds = !!(
+    (links as { spotifyTrackId?: string | null } | null)?.spotifyTrackId ||
+    (links as { youtubeVideoId?: string | null } | null)?.youtubeVideoId
+  );
+  const needsFetch = !links || !linksHaveEmbedIds;
+
   const { data: fetchedLinks, isLoading: isResolvingLinks } = useResolveLinks(
     { mbid: rec.mbid, type: rec.type, title: rec.title, artist: rec.artist },
     { query: { 
-      enabled: shouldFetchLinks && !links,
+      enabled: shouldFetchLinks && needsFetch,
       queryKey: getResolveLinksQueryKey({ mbid: rec.mbid, type: rec.type, title: rec.title, artist: rec.artist })
     } }
   );
   
   useEffect(() => {
-    if (fetchedLinks && !links) setLinks(fetchedLinks);
-  }, [fetchedLinks, links]);
+    if (fetchedLinks) setLinks(fetchedLinks);
+  }, [fetchedLinks]);
   
   const [listenState, setListenState] = useState<string | null>(rec.latestRating?.listenState || null);
   const [score, setScore] = useState<number | null>(rec.latestRating?.score || null);

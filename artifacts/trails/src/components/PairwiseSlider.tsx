@@ -31,7 +31,7 @@ export function PairwiseSlider({
   const handleConfirm = () => {
     submitPair.mutate(
       { data: { userId, aMbid, bMbid, result: value } },
-      { onSuccess: onDone }
+      { onSuccess: () => { setValue(0); onDone(); } }
     );
   };
 

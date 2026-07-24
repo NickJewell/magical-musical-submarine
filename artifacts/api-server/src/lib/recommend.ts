@@ -147,9 +147,13 @@ export async function recommend(opts: { stepId: number; userId: number }) {
         // Similarity-gate rejections and timeout errors are both logged inside musicbrainz.ts
         continue;
       }
+      // Use the candidate's declared type (always "track" — locked by LLM schema),
+      // not resolved.type which is an internal MB entity kind ("recording",
+      // "release-group") and can be stale if the mbid was cached under a
+      // different entity type in a previous run.
       roundVerified.push({
         mbid: resolved.mbid,
-        type: resolved.type === "recording" ? "track" : "album",
+        type: c.type,
         title: resolved.title,
         artist: resolved.artist,
         year: resolved.year,

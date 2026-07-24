@@ -13,9 +13,9 @@ router.get("/search", async (req, res): Promise<void> => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const { q, type = "track" } = parsed.data;
+  const { q, type = "track", page = 1 } = parsed.data;
 
-  const results = await searchMusicBrainz(q, type as "track" | "album" | "artist");
+  const results = await searchMusicBrainz(q, type as "track" | "album" | "artist", page);
   res.json(results);
 });
 

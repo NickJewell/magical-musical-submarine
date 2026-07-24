@@ -11,4 +11,5 @@ export type SearchMusicParams = {
 q: string;
 type?: SearchMusicType;
 userId: number;
+page?: number;
 };

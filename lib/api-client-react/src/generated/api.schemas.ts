@@ -426,6 +426,7 @@ export type SearchMusicParams = {
 q: string;
 type?: SearchMusicType;
 userId: number;
+page?: number;
 };
 
 export type SearchMusicType = typeof SearchMusicType[keyof typeof SearchMusicType];

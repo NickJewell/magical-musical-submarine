@@ -1,16 +1,17 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useLocation } from 'wouter';
 import { 
   useSearchMusic, useAddSeed, useListSeeds, 
   useGetNextPair, useSubmitPair, 
   useGeneratePortrait, useUpdatePortrait, useCreateDive,
-  getListSeedsQueryKey, getSearchMusicQueryKey, getGetNextPairQueryKey
+  getListSeedsQueryKey, getSearchMusicQueryKey, getGetNextPairQueryKey,
+  type SearchResult,
 } from '@workspace/api-client-react';
 import { useLocalUser } from '@/lib/useLocalUser';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Loader2, Search, Plus, Check } from 'lucide-react';
+import { Loader2, Search, Plus, ChevronDown } from 'lucide-react';
 import { Textarea } from '@/components/ui/textarea';
 
 const PROMPTS = [
@@ -47,38 +48,49 @@ export default function OnboardPage() {
 
 function Phase1Seeding({ userId, onComplete }: { userId: number, onComplete: () => void }) {
   const queryClient = useQueryClient();
-  const { data: seeds, refetch: refetchSeeds } = useListSeeds({ userId }, { query: { enabled: !!userId, queryKey: getListSeedsQueryKey({ userId }) } });
+  const { data: seeds } = useListSeeds({ userId }, { query: { enabled: !!userId, queryKey: getListSeedsQueryKey({ userId }) } });
   const [promptIdx, setPromptIdx] = useState(0);
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
+  const [page, setPage] = useState(1);
+  const [allResults, setAllResults] = useState<SearchResult[]>([]);
+  const prevQueryRef = useRef('');
 
+  // Debounce + reset pagination whenever query changes
   useEffect(() => {
-    const timer = setTimeout(() => setDebouncedQuery(query), 300);
+    const timer = setTimeout(() => {
+      setDebouncedQuery(query);
+      if (query !== prevQueryRef.current) {
+        setPage(1);
+        setAllResults([]);
+        prevQueryRef.current = query;
+      }
+    }, 300);
     return () => clearTimeout(timer);
   }, [query]);
 
-  const { data: results, isLoading: isSearching } = useSearchMusic(
-    { userId, q: debouncedQuery, type: 'track' },
-    { query: { enabled: debouncedQuery.length > 2, queryKey: getSearchMusicQueryKey({ userId, q: debouncedQuery, type: 'track' }) } }
+  const { data: pageResults, isLoading: isSearching, isFetching } = useSearchMusic(
+    { userId, q: debouncedQuery, type: 'track', page },
+    { query: { enabled: debouncedQuery.length > 2, queryKey: getSearchMusicQueryKey({ userId, q: debouncedQuery, type: 'track', page }) } }
   );
+
+  // Append new page results; replace on page 1 (fresh query)
+  useEffect(() => {
+    if (!pageResults) return;
+    setAllResults(prev => page === 1 ? pageResults : [...prev, ...pageResults]);
+  }, [pageResults]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const addSeed = useAddSeed();
 
   const handleAddSeed = (mbid: string, title: string, artist: string, year: number | null) => {
     addSeed.mutate({
-      data: {
-        userId,
-        mbid,
-        type: 'track',
-        title,
-        artist,
-        year,
-        prompt: PROMPTS[promptIdx]
-      }
+      data: { userId, mbid, type: 'track', title, artist, year, prompt: PROMPTS[promptIdx] }
     }, {
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: getListSeedsQueryKey({ userId }) });
         setQuery('');
+        setAllResults([]);
+        setPage(1);
         setPromptIdx((i) => (i + 1) % PROMPTS.length);
       }
     });
@@ -86,25 +98,30 @@ function Phase1Seeding({ userId, onComplete }: { userId: number, onComplete: () 
 
   const seedCount = seeds?.length || 0;
   const canProceed = seedCount >= 5;
+  const hasResults = allResults.length > 0;
+  const canLoadMore = !!pageResults && pageResults.length === 10 && !isFetching;
 
   return (
     <div className="flex-1 flex flex-col animate-in fade-in duration-700">
-      <div className="flex flex-wrap gap-2 mb-8">
-        {seeds?.map((s) => (
-          <div key={s.id} className="text-xs bg-secondary/50 text-secondary-foreground px-3 py-1 rounded-full border border-border/50">
-            {s.title}
-          </div>
-        ))}
-      </div>
+      {/* Added seeds chips */}
+      {seedCount > 0 && (
+        <div className="flex flex-wrap gap-2 mb-6">
+          {seeds?.map((s) => (
+            <div key={s.id} className="text-xs bg-primary/20 text-primary px-3 py-1 rounded-full border border-primary/30 font-medium">
+              {s.title}
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="flex-1 flex flex-col justify-center">
         <h2 className="text-2xl font-bold text-foreground mb-6 text-center leading-snug">
           {PROMPTS[promptIdx]}
         </h2>
 
-        <div className="relative mb-6">
+        <div className="relative mb-4">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground w-5 h-5" />
-          <Input 
+          <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search for a track..."
@@ -113,29 +130,26 @@ function Phase1Seeding({ userId, onComplete }: { userId: number, onComplete: () 
         </div>
 
         <div className="flex-1 overflow-y-auto min-h-[200px] space-y-1.5">
-          {isSearching && <div className="text-center p-4"><Loader2 className="w-5 h-5 animate-spin mx-auto text-primary" /></div>}
-          {!isSearching && results?.map((r) => (
+          {/* Initial load spinner */}
+          {isSearching && allResults.length === 0 && (
+            <div className="text-center p-4">
+              <Loader2 className="w-5 h-5 animate-spin mx-auto text-primary" />
+            </div>
+          )}
+
+          {/* Result rows */}
+          {hasResults && allResults.map((r) => (
             <button
-              key={r.mbid}
+              key={`${r.mbid}-${r.title}`}
               onClick={() => handleAddSeed(r.mbid, r.title, r.artist, r.year)}
               disabled={addSeed.isPending}
               className="w-full text-left p-4 rounded-xl bg-secondary/20 hover:bg-secondary/50 active:bg-secondary/70 transition-colors flex items-center gap-4 border border-border/30 hover:border-primary/40 group"
             >
-              {/* Left: text stack */}
               <div className="flex-1 min-w-0 space-y-0.5">
-                <p className="font-semibold text-base text-foreground truncate leading-tight">
-                  {r.title}
-                </p>
-                <p className="text-sm font-medium text-primary/90 truncate">
-                  {r.artist}
-                </p>
-                {r.release && (
-                  <p className="text-xs text-muted-foreground truncate">
-                    {r.release}
-                  </p>
-                )}
+                <p className="font-semibold text-base text-foreground truncate leading-tight">{r.title}</p>
+                <p className="text-sm font-medium text-primary/90 truncate">{r.artist}</p>
+                {r.release && <p className="text-xs text-muted-foreground truncate">{r.release}</p>}
               </div>
-              {/* Right: year badge + add icon */}
               <div className="flex items-center gap-2 shrink-0">
                 {r.year && (
                   <span className="text-xs font-mono text-muted-foreground bg-secondary/60 px-2 py-0.5 rounded-full border border-border/50">
@@ -148,11 +162,25 @@ function Phase1Seeding({ userId, onComplete }: { userId: number, onComplete: () 
               </div>
             </button>
           ))}
+
+          {/* Load more */}
+          {hasResults && (
+            <button
+              onClick={() => setPage(p => p + 1)}
+              disabled={!canLoadMore}
+              className="w-full py-3 flex items-center justify-center gap-2 text-xs font-mono text-muted-foreground hover:text-primary transition-colors disabled:opacity-40"
+            >
+              {isFetching
+                ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                : <ChevronDown className="w-3.5 h-3.5" />}
+              {isFetching ? 'Loading…' : 'Load more results'}
+            </button>
+          )}
         </div>
       </div>
 
       <div className="pt-6 mt-auto">
-        <Button 
+        <Button
           onClick={onComplete}
           disabled={!canProceed}
           className="w-full h-14 rounded-full bg-primary text-primary-foreground text-lg"

@@ -59,11 +59,13 @@ export const GetStateResponse = zod.object({
  * @summary Search MusicBrainz for tracks or artists
  */
 export const searchMusicQueryTypeDefault = `track`;
+export const searchMusicQueryPageDefault = 1;
 
 export const SearchMusicQueryParams = zod.object({
   "q": zod.coerce.string(),
   "type": zod.enum(['track', 'album', 'artist']).default(searchMusicQueryTypeDefault),
-  "userId": zod.coerce.number()
+  "userId": zod.coerce.number(),
+  "page": zod.coerce.number().default(searchMusicQueryPageDefault)
 })
 
 export const SearchMusicResponseItem = zod.object({

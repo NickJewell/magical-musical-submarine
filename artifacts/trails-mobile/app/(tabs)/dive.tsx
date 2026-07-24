@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -49,6 +49,40 @@ export default function DiveScreen() {
     return { tag: 'no-dive' };
   });
   const [diveName, setDiveName] = useState('');
+
+  // `undefined` = no suppression; `number | null` = the diveId the user intentionally
+  // left by tapping "new dive". The sync effect skips resetting phase for that specific
+  // diveId, preventing the "new dive" screen from being immediately overwritten while
+  // appState.activeDiveId still points to the old dive. Cleared when the server reports
+  // a genuinely different (or newly created) activeDiveId.
+  const suppressedDiveIdRef = useRef<number | null | undefined>(undefined);
+
+  // Re-sync phase whenever the server's activeDiveId changes (e.g. after a tab switch
+  // or a new dive started elsewhere). Uses functional updater to avoid needing `phase`
+  // in the dependency array, which would cause infinite re-renders.
+  useEffect(() => {
+    const serverDiveId = appState?.activeDiveId ?? null;
+
+    // If the user tapped "new dive" for this exact dive, don't force them back.
+    // Once the server reports a *different* diveId (new dive created), lift suppression.
+    if (suppressedDiveIdRef.current !== undefined) {
+      if (serverDiveId === suppressedDiveIdRef.current) return; // still suppressed
+      suppressedDiveIdRef.current = undefined; // new dive on server — clear suppression
+    }
+
+    setPhase((prev) => {
+      if (serverDiveId === null) {
+        // No active dive on the server — reset unless we're already at no-dive/starting
+        if (prev.tag === 'no-dive' || prev.tag === 'starting') return prev;
+        return { tag: 'no-dive' };
+      }
+      // Server has an active dive — check if local phase already tracks it
+      const localDiveId = 'diveId' in prev ? prev.diveId : null;
+      if (localDiveId === serverDiveId) return prev; // already in sync, no-op
+      // Different (or absent) diveId locally — jump to get-directions for the new dive
+      return { tag: 'get-directions', diveId: serverDiveId };
+    });
+  }, [appState?.activeDiveId]);
 
   const createDive = useCreateDive();
   const getDirections = useGetDirections();
@@ -134,9 +168,12 @@ export default function DiveScreen() {
   }, []);
 
   const handleNewDive = useCallback(() => {
+    // Suppress auto-sync for the current active dive so the "new dive" screen
+    // isn't immediately overwritten while appState.activeDiveId still points to it.
+    suppressedDiveIdRef.current = appState?.activeDiveId ?? null;
     setDiveName('');
     setPhase({ tag: 'no-dive' });
-  }, []);
+  }, [appState?.activeDiveId]);
 
   // ── No dive ────────────────────────────────────────────────────────────────
   if (phase.tag === 'no-dive') {

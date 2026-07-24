@@ -49,14 +49,13 @@ function Landing() {
         <div className="mt-12 space-y-3">
           <Button
             asChild
-            className="w-full h-12 bg-primary text-primary-foreground hover:bg-primary/90 rounded-full"
+            className="w-full h-12 bg-primary text-primary-foreground hover:bg-primary/90 rounded-full font-semibold"
           >
-            <a href={`${basePath}/sign-up`}>Begin your descent</a>
+            <a href={`${basePath}/sign-up`}>Create account</a>
           </Button>
           <Button
             asChild
-            variant="outline"
-            className="w-full h-12 rounded-full border-primary/40 text-primary-foreground hover:bg-primary/10 hover:border-primary/70"
+            className="w-full h-12 rounded-full bg-slate-600 hover:bg-slate-500 text-white font-semibold"
           >
             <a href={`${basePath}/sign-in`}>Sign in</a>
           </Button>
@@ -131,10 +130,9 @@ function HomeContent({ userId, onNavigate }: { userId: number; onNavigate: (path
           {user?.firstName ?? user?.emailAddresses[0]?.emailAddress?.split('@')[0] ?? 'Diver'}
         </span>
         <Button
-          variant="outline"
           size="sm"
           onClick={() => signOut({ redirectUrl: basePath || '/' })}
-          className="rounded-full border-border/50 text-muted-foreground hover:text-primary-foreground hover:border-primary/50 text-xs font-mono uppercase tracking-widest px-4"
+          className="rounded-full bg-slate-600 hover:bg-slate-500 text-white text-xs font-mono uppercase tracking-widest px-4"
         >
           Sign out
         </Button>

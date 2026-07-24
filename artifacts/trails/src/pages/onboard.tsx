@@ -98,7 +98,7 @@ function Phase1Seeding({ userId, onComplete }: { userId: number, onComplete: () 
       </div>
 
       <div className="flex-1 flex flex-col justify-center">
-        <h2 className="text-2xl font-serif text-primary-foreground mb-6 text-center leading-snug">
+        <h2 className="text-2xl font-bold text-foreground mb-6 text-center leading-snug">
           {PROMPTS[promptIdx]}
         </h2>
 

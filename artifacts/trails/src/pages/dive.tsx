@@ -4,7 +4,7 @@ import {
   useLoadDive, useLoadRecap, useGetDirections, useChooseStep,
   getLoadDiveQueryKey, getLoadRecapQueryKey 
 } from '@workspace/api-client-react';
-import { getUserId } from '@/lib/auth';
+import { useLocalUser } from '@/lib/useLocalUser';
 import { Button } from '@/components/ui/button';
 import { Loader2, ArrowRight } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -12,9 +12,14 @@ import { useQueryClient } from '@tanstack/react-query';
 export default function DivePage() {
   const { id: diveIdStr } = useParams();
   const diveId = parseInt(diveIdStr || '0', 10);
-  const userId = getUserId();
+  const { localUserId: userId, isLoading } = useLocalUser();
   const [, setLocation] = useLocation();
 
+  if (isLoading) return (
+    <div className="flex-1 flex items-center justify-center min-h-[100dvh]">
+      <Loader2 className="w-6 h-6 text-primary animate-spin" />
+    </div>
+  );
   if (!userId || !diveId) return null;
 
   return <DiveContent userId={userId} diveId={diveId} onNavigate={setLocation} />;

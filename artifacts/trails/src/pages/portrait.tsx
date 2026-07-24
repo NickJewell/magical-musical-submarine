@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useGetPortrait, useUpdatePortrait, useGeneratePortrait, getGetPortraitQueryKey } from '@workspace/api-client-react';
-import { getUserId } from '@/lib/auth';
+import { useLocalUser } from '@/lib/useLocalUser';
 import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -8,8 +8,20 @@ import { Loader2, RefreshCw, Check } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 export default function PortraitPage() {
-  const userId = getUserId();
-  const { data: portrait, isLoading } = useGetPortrait({ userId: userId! }, { query: { enabled: !!userId, queryKey: getGetPortraitQueryKey({ userId: userId! }) } });
+  const { localUserId: userId, isLoading } = useLocalUser();
+
+  if (isLoading) return (
+    <div className="flex-1 flex items-center justify-center min-h-[100dvh]">
+      <Loader2 className="w-8 h-8 text-primary animate-spin" />
+    </div>
+  );
+  if (!userId) return null;
+
+  return <PortraitContent userId={userId} />;
+}
+
+function PortraitContent({ userId }: { userId: number }) {
+  const { data: portrait, isLoading } = useGetPortrait({ userId }, { query: { enabled: true, queryKey: getGetPortraitQueryKey({ userId }) } });
   const [text, setText] = useState('');
   const [isEditing, setIsEditing] = useState(false);
   const queryClient = useQueryClient();
@@ -23,8 +35,6 @@ export default function PortraitPage() {
       setText(portrait.text);
     }
   }, [portrait, isEditing]);
-
-  if (!userId) return null;
 
   if (isLoading || !portrait) {
     return <div className="flex-1 flex items-center justify-center min-h-[100dvh]"><Loader2 className="w-8 h-8 text-primary animate-spin" /></div>;

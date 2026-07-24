@@ -7,7 +7,7 @@ import {
   useGeneratePortrait, useUpdatePortrait, useCreateDive,
   getListSeedsQueryKey, getSearchMusicQueryKey, getGetNextPairQueryKey
 } from '@workspace/api-client-react';
-import { getUserId } from '@/lib/auth';
+import { useLocalUser } from '@/lib/useLocalUser';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Loader2, Search, Plus, Check } from 'lucide-react';
@@ -22,10 +22,15 @@ const PROMPTS = [
 ];
 
 export default function OnboardPage() {
-  const [location, setLocation] = useLocation();
-  const userId = getUserId();
+  const [, setLocation] = useLocation();
+  const { localUserId: userId, isLoading } = useLocalUser();
   const [phase, setPhase] = useState<1 | 2 | 3>(1);
 
+  if (isLoading) return (
+    <div className="flex-1 flex items-center justify-center min-h-screen">
+      <Loader2 className="w-8 h-8 text-primary animate-spin" />
+    </div>
+  );
   if (!userId) {
     setTimeout(() => setLocation('/'), 0);
     return null;

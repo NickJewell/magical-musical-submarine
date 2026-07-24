@@ -5,7 +5,7 @@ import {
   getLoadDiveQueryKey, getResolveLinksQueryKey,
   type Recommendation
 } from '@workspace/api-client-react';
-import { getUserId } from '@/lib/auth';
+import { useLocalUser } from '@/lib/useLocalUser';
 import { Button } from '@/components/ui/button';
 import { Loader2, Play, Star } from 'lucide-react';
 import { SiSpotify, SiYoutube } from 'react-icons/si';
@@ -13,9 +13,14 @@ import { SiSpotify, SiYoutube } from 'react-icons/si';
 export default function QueuePage() {
   const { id: diveIdStr } = useParams();
   const diveId = parseInt(diveIdStr || '0', 10);
-  const userId = getUserId();
+  const { localUserId: userId, isLoading } = useLocalUser();
   const [, setLocation] = useLocation();
 
+  if (isLoading) return (
+    <div className="flex-1 flex items-center justify-center min-h-[100dvh]">
+      <Loader2 className="w-6 h-6 text-primary animate-spin" />
+    </div>
+  );
   if (!userId || !diveId) return null;
 
   return <QueueContent userId={userId} diveId={diveId} onNavigate={setLocation} />;

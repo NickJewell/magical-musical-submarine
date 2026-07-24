@@ -1,15 +1,25 @@
 import { useGetMetrics, getGetMetricsQueryKey } from '@workspace/api-client-react';
-import { getUserId } from '@/lib/auth';
+import { useLocalUser } from '@/lib/useLocalUser';
 import { Loader2, TrendingUp, BarChart3, Activity } from 'lucide-react';
 
 export default function MetricsPage() {
-  const userId = getUserId();
-  const { data: metrics, isLoading } = useGetMetrics(
-    { userId: userId! },
-    { query: { enabled: !!userId, queryKey: getGetMetricsQueryKey({ userId: userId! }) } }
-  );
+  const { localUserId: userId, isLoading: userLoading } = useLocalUser();
 
+  if (userLoading) return (
+    <div className="flex-1 flex items-center justify-center min-h-[100dvh]">
+      <Loader2 className="w-8 h-8 text-primary animate-spin" />
+    </div>
+  );
   if (!userId) return null;
+
+  return <MetricsContent userId={userId} />;
+}
+
+function MetricsContent({ userId }: { userId: number }) {
+  const { data: metrics, isLoading } = useGetMetrics(
+    { userId },
+    { query: { enabled: true, queryKey: getGetMetricsQueryKey({ userId }) } }
+  );
 
   if (isLoading || !metrics) {
     return (
@@ -20,13 +30,6 @@ export default function MetricsPage() {
   }
 
   const { overallDiscoveryRate, totalRatedRecs, byArm, byDive } = metrics;
-  
-  // Find LLM known for goal comparison
-  const llmNew = byArm.find(a => a.arm === 'llm');
-  const llmKnownScore = llmNew?.knownRate ? (llmNew.avgScore || 0) * (1 - llmNew.knownRate) : null; // Approximating since we don't have separate known/new score in schema directly, wait schema just says arm metrics.
-  // The schema has `discoveryRate` and `knownRate`.
-  // "The goal the app is trying to beat: LLM-new scores matching LLM-known"
-  // Let's just render the available stats elegantly.
 
   const formatPct = (val: number | null) => val !== null ? `${(val * 100).toFixed(1)}%` : '—';
   const formatScore = (val: number | null) => val !== null ? val.toFixed(2) : '—';

@@ -1,21 +1,22 @@
 /**
  * InlinePlayer — §18
- * Lazy-mounted Spotify (default) / YouTube embed inside a rec card.
+ * Lazy-mounted Spotify / YouTube / Deezer embed inside a rec card.
  * Only one player is active at a time (controlled by parent via activeRecId).
  */
 
 import { useState, useEffect } from 'react';
 import { Play, ChevronUp, Loader2 } from 'lucide-react';
-import { SiSpotify, SiYoutube } from 'react-icons/si';
+import { SiSpotify, SiYoutube, SiDeezer } from 'react-icons/si';
 import { cn } from '@/lib/utils';
 
-type Provider = 'spotify' | 'youtube';
+type Provider = 'spotify' | 'youtube' | 'deezer';
 
 export interface ResolvedLinks {
   spotify:        string | null;
   youtube:        string | null;
   spotifyTrackId: string | null;
   youtubeVideoId: string | null;
+  deezerId:       string | null;
 }
 
 interface Props {
@@ -34,22 +35,25 @@ export function InlinePlayer({
 
   const hasSpotify = !!(links?.spotifyTrackId);
   const hasYoutube = !!(links?.youtubeVideoId);
-  const hasEmbed   = hasSpotify || hasYoutube;
+  const hasDeezer  = !!(links?.deezerId);
+  const hasEmbed   = hasSpotify || hasYoutube || hasDeezer;
 
-  // Default provider: spotify when available, else youtube
-  const defaultProvider: Provider = hasSpotify ? 'spotify' : 'youtube';
+  // Default provider priority: Spotify → YouTube → Deezer
+  const defaultProvider: Provider = hasSpotify ? 'spotify' : hasYoutube ? 'youtube' : 'deezer';
   const [provider, setProvider]   = useState<Provider>(defaultProvider);
 
-  // Sync provider when links first arrive (in case component mounted before links resolved)
+  // Sync provider when links first arrive
   useEffect(() => {
-    if (hasSpotify && !hasYoutube) setProvider('spotify');
-    if (hasYoutube && !hasSpotify) setProvider('youtube');
-  }, [hasSpotify, hasYoutube]);
+    if (hasSpotify) setProvider('spotify');
+    else if (hasYoutube) setProvider('youtube');
+    else if (hasDeezer) setProvider('deezer');
+  }, [hasSpotify, hasYoutube, hasDeezer]);
 
   // Actual provider to render (fallback if preferred unavailable)
   const activeProvider: Provider =
-    provider === 'spotify' && !hasSpotify ? 'youtube' :
-    provider === 'youtube' && !hasYoutube ? 'spotify' :
+    provider === 'spotify' && !hasSpotify ? (hasYoutube ? 'youtube' : 'deezer') :
+    provider === 'youtube' && !hasYoutube ? (hasSpotify ? 'spotify' : 'deezer') :
+    provider === 'deezer'  && !hasDeezer  ? (hasSpotify ? 'spotify' : 'youtube') :
     provider;
 
   const handleOpen = () => {
@@ -112,6 +116,20 @@ export function InlinePlayer({
               YouTube
             </button>
           )}
+          {hasDeezer && (
+            <button
+              onClick={() => setProvider('deezer')}
+              className={cn(
+                'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-mono transition-all',
+                activeProvider === 'deezer'
+                  ? 'bg-[#EF5466]/15 text-[#EF5466] border border-[#EF5466]/25'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              <SiDeezer className="w-3.5 h-3.5" />
+              Deezer
+            </button>
+          )}
         </div>
 
         <button
@@ -156,6 +174,18 @@ export function InlinePlayer({
           allowFullScreen
           className="rounded-xl"
           title="YouTube player"
+        />
+      ) : activeProvider === 'deezer' && links?.deezerId ? (
+        <iframe
+          key={`dz-${links.deezerId}`}
+          src={`https://widget.deezer.com/widget/auto/track/${links.deezerId}?autoplay=true`}
+          width="100%"
+          height="152"
+          frameBorder="0"
+          loading="lazy"
+          allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+          className="rounded-xl"
+          title="Deezer player"
         />
       ) : null}
     </div>

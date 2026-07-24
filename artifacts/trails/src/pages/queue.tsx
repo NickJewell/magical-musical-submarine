@@ -212,7 +212,8 @@ function RecCard({ rec, userId, onRated, activeRecId, onActivate }: {
 
   const linksHaveEmbedIds = !!(
     (links as { spotifyTrackId?: string | null } | null)?.spotifyTrackId ||
-    (links as { youtubeVideoId?: string | null } | null)?.youtubeVideoId
+    (links as { youtubeVideoId?: string | null } | null)?.youtubeVideoId ||
+    (links as { deezerId?: string | null } | null)?.deezerId
   );
   const linksHaveArtwork = !!(links as { artworkUrl?: string | null } | null)?.artworkUrl;
   // Fetch when: no links, no embed IDs (stale pre-§18 blob), or artwork still missing from both.

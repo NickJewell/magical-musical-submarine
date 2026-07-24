@@ -1,0 +1,1 @@
+- [Odesli/Deezer embed resolution](odesli-deezer-embed.md) — Odesli IP-blocked; Deezer free search is the working embed fallback; pipeline details and http.ts retry rules.

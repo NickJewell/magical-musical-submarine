@@ -39,6 +39,7 @@ function linksToResolved(linksJson: Record<string, unknown> | null): ResolvedLin
     youtube:        (linksJson.youtube        as string | null) ?? null,
     spotifyTrackId: (linksJson.spotifyTrackId as string | null) ?? null,
     youtubeVideoId: (linksJson.youtubeVideoId as string | null) ?? null,
+    deezerId:       (linksJson.deezerId       as string | null) ?? null,
   };
 }
 

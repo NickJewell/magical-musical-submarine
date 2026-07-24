@@ -162,13 +162,23 @@ export async function httpGet<T>(
 
       if (res.status === 429 || res.status === 503) {
         const retryAfter = parseInt(res.headers.get("Retry-After") ?? "2", 10);
-        logger.warn({ status: res.status, retryAfter, url }, "Rate limited, will retry");
-        await new Promise((r) => setTimeout(r, retryAfter * 1000));
+        const hasMoreAttempts = attempt + 1 < retries;
+        logger.warn({ status: res.status, retryAfter, url, hasMoreAttempts }, "Rate limited");
+        if (hasMoreAttempts) {
+          await new Promise((r) => setTimeout(r, retryAfter * 1000));
+        } else {
+          lastError = new Error(`HTTP ${res.status} rate-limited for ${url}`);
+        }
         continue;
       }
 
       if (!res.ok) {
-        throw new Error(`HTTP ${res.status} ${res.statusText} for ${url}`);
+        const err = new Error(`HTTP ${res.status} ${res.statusText} for ${url}`);
+        // 4xx client errors (except 429 handled above) are not retryable — bail immediately
+        if (res.status >= 400 && res.status < 500) throw err;
+        lastError = err;
+        logger.warn({ err, url, attempt }, "HTTP request failed");
+        continue;
       }
 
       const body = (await res.json()) as T;
@@ -185,6 +195,9 @@ export async function httpGet<T>(
       const isTimeout =
         (err instanceof Error && err.name === "AbortError") ||
         (err instanceof Error && err.message.includes("aborted"));
+      // 4xx errors (except 429 already handled above) are not transient — don't retry
+      const is4xx = lastError.message.match(/HTTP 4\d\d/);
+      if (is4xx) throw lastError;
       if (isTimeout) {
         logger.warn({ url, attempt, timeoutMs }, "HTTP request timed out (AbortError)");
       } else {

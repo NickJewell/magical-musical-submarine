@@ -29,9 +29,10 @@ export interface StreamingLinks {
   spotify:        string | null;
   youtube:        string | null;
   appleMusic:     string | null;
-  source:         "odesli" | "search_fallback";
+  source:         "odesli" | "odesli_am" | "mb_relations" | "deezer" | "search_fallback";
   spotifyTrackId: string | null;
   youtubeVideoId: string | null;
+  deezerId:       string | null;
   artworkUrl:     string | null;
 }
 
@@ -75,6 +76,25 @@ function pickOdesliThumbnail(data: OdesliResponse): string | null {
 interface ItunesData {
   artworkUrl:   string | null;
   trackViewUrl: string | null; // Apple Music URL — a first-class Odesli source
+}
+
+interface DeezerTrack { id: number; preview?: string }
+interface DeezerSearchResp { data?: DeezerTrack[] }
+
+/** Deezer search — free, no auth. Returns Deezer track ID for embeds. Non-throwing. */
+async function fetchDeezerData(artist: string, title: string): Promise<{ deezerId: string | null }> {
+  try {
+    const q = encodeURIComponent(`${artist} ${title}`);
+    const data = await httpGet<DeezerSearchResp>(
+      `https://api.deezer.com/search?q=${q}&limit=1`,
+      { cacheKey: `deezer:${artist.toLowerCase()}:${title.toLowerCase()}`, cacheTtlMs: 30 * 24 * 60 * 60 * 1000 },
+    );
+    const track = data.data?.[0];
+    if (!track) return { deezerId: null };
+    return { deezerId: String(track.id) };
+  } catch {
+    return { deezerId: null };
+  }
 }
 
 /** iTunes Search API — returns artwork (upscaled) and Apple Music track URL. Non-throwing. */
@@ -244,6 +264,7 @@ export async function resolveLinks(
         source:         "mb_relations",
         spotifyTrackId,
         youtubeVideoId,
+        deezerId:       null,
         artworkUrl,
       };
     }
@@ -254,22 +275,25 @@ export async function resolveLinks(
   // Await iTunes synchronously so we can return artwork immediately.
   if (!isRealMbid(mbid)) {
     const { artworkUrl, trackViewUrl } = await fetchItunesData(artist, title);
+    const { deezerId } = await fetchDeezerData(artist, title);
     return {
       spotify:        spotifySearchUrl(artist, title),
       youtube:        youtubeSearchUrl(artist, title),
       appleMusic:     trackViewUrl ?? null,
-      source:         "search_fallback",
+      source:         deezerId ? "deezer" : "search_fallback",
       spotifyTrackId: null,
       youtubeVideoId: null,
+      deezerId:       deezerId ?? null,
       artworkUrl,
     };
   }
 
   // ── Step 3: Odesli (one attempt via MusicBrainz URL) ────────────────────────
+  // retries:1 = single attempt; on 429/failure we fall through to Deezer instantly.
   try {
     const data = await httpGet<OdesliResponse>(
       `${ODESLI_BASE}?url=${encodeURIComponent(mbUrl)}&userCountry=US`,
-      { cacheKey, cacheTtlMs: 7 * 24 * 60 * 60 * 1000 },
+      { cacheKey, cacheTtlMs: 7 * 24 * 60 * 60 * 1000, retries: 1 },
     );
 
     const platform       = data.linksByPlatform ?? {};
@@ -290,18 +314,36 @@ export async function resolveLinks(
       source:      "odesli",
       spotifyTrackId,
       youtubeVideoId,
+      deezerId:    null,
       artworkUrl,
     };
   } catch (err) {
     logger.warn({ err, mbid }, "Odesli lookup failed — returning search URLs with iTunes artwork");
   }
 
-  // ── Step 4: Odesli failed — return search URLs but always include artwork ────
-  // Await iTunes synchronously so artwork is available in this response, not
-  // only after a future re-fetch.
-  const { artworkUrl: itunesArtwork, trackViewUrl } = await fetchItunesData(artist, title);
+  // ── Step 4: Deezer — free search, no auth, reliable embed via widget ─────────
+  // Fetch iTunes in parallel with Deezer so artwork is ready regardless.
+  const [{ artworkUrl: itunesArtwork, trackViewUrl }, { deezerId }] = await Promise.all([
+    fetchItunesData(artist, title),
+    fetchDeezerData(artist, title),
+  ]);
   if (itunesArtwork) cacheEmbedIds(mbid, null, null, itunesArtwork).catch(() => null);
 
+  if (deezerId) {
+    logger.info({ mbid, deezerId }, "Using Deezer embed as final fallback");
+    return {
+      spotify:        spotifySearchUrl(artist, title),
+      youtube:        youtubeSearchUrl(artist, title),
+      appleMusic:     trackViewUrl ?? null,
+      source:         "deezer",
+      spotifyTrackId: null,
+      youtubeVideoId: null,
+      deezerId,
+      artworkUrl:     itunesArtwork,
+    };
+  }
+
+  // ── Step 6: absolute fallback — search URLs only ────────────────────────────
   return {
     spotify:        spotifySearchUrl(artist, title),
     youtube:        youtubeSearchUrl(artist, title),
@@ -309,6 +351,7 @@ export async function resolveLinks(
     source:         "search_fallback",
     spotifyTrackId: null,
     youtubeVideoId: null,
+    deezerId:       null,
     artworkUrl:     itunesArtwork,
   };
 }

@@ -1,7 +1,8 @@
 import { Router, type IRouter } from "express";
 import { db, ratingsTable, pathRatingsTable, tasteEventsTable, recommendationsTable, diveStepsTable, divesTable } from "@workspace/db";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, count } from "drizzle-orm";
 import { RateRecBody, RateStepBody } from "@workspace/api-zod";
+import { triggerPortraitRebuild } from "../lib/portraitGen";
 
 const router: IRouter = Router();
 
@@ -67,6 +68,16 @@ router.post("/rate", async (req, res): Promise<void> => {
     kind: "rating",
     payloadJson: { recId, listenState, score, reviewText: reviewText ?? null },
   });
+
+  // Every 3rd rating — rebuild portrait in the background
+  const ratingCountRows = await db
+    .select({ cnt: count() })
+    .from(tasteEventsTable)
+    .where(eq(tasteEventsTable.userId, userId));
+  const totalEvents = Number(ratingCountRows[0]?.cnt ?? 0);
+  if (totalEvents > 0 && totalEvents % 3 === 0) {
+    triggerPortraitRebuild(userId);
+  }
 
   res.status(201).json({
     id: rating.id,

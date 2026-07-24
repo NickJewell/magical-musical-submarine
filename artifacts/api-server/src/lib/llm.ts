@@ -259,9 +259,10 @@ Generate 3 named themed directions (contrastive) and the well-trodden direction.
 export async function generatePortrait(opts: {
   seeds: Array<{ title: string; artist: string; year: number | null; prompt: string | null }>;
   pairChoices: Array<{ winner: string; loser: string; strength: number }>;
+  recentRatings?: Array<{ title: string; artist: string; listenState: string; score: number | null }>;
   priorPortrait?: string | null;
 }): Promise<string> {
-  const { seeds, pairChoices, priorPortrait } = opts;
+  const { seeds, pairChoices, recentRatings, priorPortrait } = opts;
 
   const seedList = seeds
     .map((s) => `- "${s.title}" by ${s.artist}${s.year ? ` (${s.year})` : ""}${s.prompt ? ` [seeded from: "${s.prompt}"]` : ""}`)
@@ -291,11 +292,21 @@ Output rules:
 - End with one sentence naming what you're still unsure about — an open question the next recommendations could test.
 - Banned phrases/moves (cut on sight): "sonic tapestry," "soundscape," "eclectic," "genre-defying," "musical journey," "at its core," "whether it's X or Y," "auditory," "diverse range," "eras and genres," and any sentence that could describe anyone.`;
 
+  const ratingsBlock = recentRatings && recentRatings.length > 0
+    ? "\n\nRecent track ratings (strongest signal — weight heavily):\n" +
+      recentRatings.map((r) => {
+        const scoreLabel = r.score === 1 ? " (1/3 — less of this)"
+          : r.score === 2 ? " (2/3 — middle ground)"
+          : r.score === 3 ? " (3/3 — more of this)" : "";
+        return `- "${r.title}" by ${r.artist}: ${r.listenState}${scoreLabel}`;
+      }).join("\n")
+    : "";
+
   const priorBlock = priorPortrait
     ? `\n\nPrior portrait (evolve this, do not discard):\n${priorPortrait}`
     : "";
 
-  const userPrompt = `Seeds:\n${seedList}\n\nPairwise preferences:\n${pairList}${priorBlock}`;
+  const userPrompt = `Seeds:\n${seedList}\n\nPairwise preferences:\n${pairList}${ratingsBlock}${priorBlock}`;
 
   const portrait = await chat(NARRATE_MODEL, [
     { role: "system", content: systemPrompt },

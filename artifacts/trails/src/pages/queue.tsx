@@ -1,14 +1,14 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useLocation } from 'wouter';
+import { useQueryClient } from '@tanstack/react-query';
 import { 
   useGetRecommendations, useResolveLinks, useRateRec, useRateStep, useLoadDive,
-  getLoadDiveQueryKey, getResolveLinksQueryKey,
+  getLoadDiveQueryKey, getResolveLinksQueryKey, getGetPortraitQueryKey,
   type Recommendation
 } from '@workspace/api-client-react';
 import { useLocalUser } from '@/lib/useLocalUser';
 import { Button } from '@/components/ui/button';
 import { Loader2, Play, Star, Anchor } from 'lucide-react';
-import { useQueryClient } from '@tanstack/react-query';
 import { InlineDiveRename } from '@/components/InlineDiveRename';
 import { SiSpotify, SiYoutube } from 'react-icons/si';
 
@@ -42,6 +42,17 @@ function QueueContent({ userId, diveId, onNavigate }: { userId: number, diveId: 
   const [hasStartedFetch, setHasStartedFetch] = useState(false);
   const [ratedCount, setRatedCount] = useState(0);
   const getRecommendations = useGetRecommendations();
+
+  // Invalidate portrait query 6 s after every 3rd rating — gives server time to regenerate
+  useEffect(() => {
+    if (ratedCount > 0 && ratedCount % 3 === 0) {
+      const t = setTimeout(
+        () => queryClient.invalidateQueries({ queryKey: getGetPortraitQueryKey({ userId }) }),
+        6000,
+      );
+      return () => clearTimeout(t);
+    }
+  }, [ratedCount, userId, queryClient]);
 
   const mutateRef = useRef(getRecommendations.mutate);
   mutateRef.current = getRecommendations.mutate;

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useQuery, useMutation } from '@tanstack/react-query';
-import { useRateRec } from '@workspace/api-client-react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useRateRec, getGetPortraitQueryKey } from '@workspace/api-client-react';
 import { useLocalUser } from '@/lib/useLocalUser';
 import { Button } from '@/components/ui/button';
 import {
@@ -467,6 +467,7 @@ export default function TimelinePage() {
 }
 
 function TimelineContent({ userId }: { userId: number }) {
+  const queryClient = useQueryClient();
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const [allDays, setAllDays] = useState<DayData[]>([]);
@@ -474,6 +475,7 @@ function TimelineContent({ userId }: { userId: number }) {
   const [loadingMore, setLoadingMore] = useState(false);
   const [initialLoaded, setInitialLoaded] = useState(false);
   const [selectedSong, setSelectedSong] = useState<Song | null>(null);
+  const [ratedCount, setRatedCount] = useState(0);
 
   const today = new Date().toISOString().slice(0, 10);
 
@@ -490,9 +492,20 @@ function TimelineContent({ userId }: { userId: number }) {
         })),
       })),
     );
-    // Also keep the open dialog in sync
     setSelectedSong((s) => (s && s.recId === recId ? { ...s, score, listenState } : s));
+    setRatedCount((n) => n + 1);
   }, []);
+
+  // Invalidate portrait 6 s after every 3rd rating
+  useEffect(() => {
+    if (ratedCount > 0 && ratedCount % 3 === 0) {
+      const t = setTimeout(
+        () => queryClient.invalidateQueries({ queryKey: getGetPortraitQueryKey({ userId }) }),
+        6000,
+      );
+      return () => clearTimeout(t);
+    }
+  }, [ratedCount, userId, queryClient]);
 
   // Initial load
   const { data: initial, isLoading } = useQuery({

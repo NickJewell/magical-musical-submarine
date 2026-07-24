@@ -9,6 +9,12 @@ export const portraitsTable = pgTable("portraits", {
   version: integer("version").notNull(),
   text: text("text").notNull(),
   source: text("source").notNull().default("llm"), // llm | user_edit
+  /**
+   * SHA-256 hex hash of the serialized seeds+pair-choices input.
+   * Used to skip LLM regeneration when the inputs haven't changed.
+   * NULL for portraits created before this column was added, or for user_edit rows.
+   */
+  seedsHash: text("seeds_hash"),
   generatedAt: timestamp("generated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

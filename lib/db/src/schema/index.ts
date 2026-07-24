@@ -7,3 +7,4 @@ export * from "./dive_steps";
 export * from "./recommendations";
 export * from "./ratings";
 export * from "./resolved_entities";
+export * from "./http_cache";

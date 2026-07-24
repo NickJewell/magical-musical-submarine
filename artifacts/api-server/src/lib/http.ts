@@ -1,9 +1,15 @@
 /**
  * Shared HTTP client with per-host throttling, response caching, and retries.
  * MusicBrainz requires ~1 req/s; we enforce that with a per-host queue.
+ *
+ * Cache layers:
+ *   L1 — in-memory Map (process-scoped, fastest, lost on restart)
+ *   L2 — Postgres http_cache table (persistent, survives restarts)
  */
 
 import { logger } from "./logger";
+import { db, httpCacheTable } from "@workspace/db";
+import { eq, lt } from "drizzle-orm";
 
 const MB_CONTACT = process.env.MB_CONTACT ?? "trails-app@example.com";
 const USER_AGENT = `Trails/1.0 (${MB_CONTACT})`;
@@ -15,8 +21,8 @@ const HOST_DELAYS: Record<string, number> = {
   "coverartarchive.org": 1100,
 };
 
-// Simple in-memory response cache
-const responseCache: Map<string, { body: unknown; expiresAt: number }> = new Map();
+// L1: in-memory response cache (fast path, process-scoped)
+const l1Cache: Map<string, { body: unknown; expiresAt: number }> = new Map();
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h default
 
 function getHost(url: string): string {
@@ -39,6 +45,53 @@ async function throttle(host: string): Promise<void> {
   lastRequestTime.set(host, Date.now());
 }
 
+// ---- L2 DB cache helpers ----
+
+async function l2Get(key: string): Promise<unknown | null> {
+  try {
+    const rows = await db
+      .select()
+      .from(httpCacheTable)
+      .where(eq(httpCacheTable.key, key))
+      .limit(1);
+    const row = rows[0];
+    if (!row) return null;
+    if (row.expiresAt < new Date()) {
+      // Expired — delete in background, don't block
+      db.delete(httpCacheTable).where(eq(httpCacheTable.key, key)).catch(() => {});
+      return null;
+    }
+    return row.body;
+  } catch (err) {
+    logger.warn({ err, key }, "http_cache L2 read failed — falling through to network");
+    return null;
+  }
+}
+
+async function l2Set(key: string, body: unknown, ttlMs: number): Promise<void> {
+  try {
+    const expiresAt = new Date(Date.now() + ttlMs);
+    await db
+      .insert(httpCacheTable)
+      .values({ key, body, expiresAt })
+      .onConflictDoUpdate({
+        target: httpCacheTable.key,
+        set: { body, expiresAt, createdAt: new Date() },
+      });
+  } catch (err) {
+    logger.warn({ err, key }, "http_cache L2 write failed — cache miss on next restart");
+  }
+}
+
+/** Purge rows that have already expired (run occasionally to keep the table small). */
+export async function purgeExpiredHttpCache(): Promise<void> {
+  try {
+    await db.delete(httpCacheTable).where(lt(httpCacheTable.expiresAt, new Date()));
+  } catch (err) {
+    logger.warn({ err }, "Failed to purge expired http_cache rows");
+  }
+}
+
 export interface FetchOptions {
   cacheKey?: string;
   cacheTtlMs?: number;
@@ -51,11 +104,21 @@ export async function httpGet<T>(
 ): Promise<T> {
   const { cacheKey, cacheTtlMs = CACHE_TTL_MS, retries = 3 } = opts;
 
-  // Check cache
+  // L1 check (in-memory)
   if (cacheKey) {
-    const cached = responseCache.get(cacheKey);
-    if (cached && Date.now() < cached.expiresAt) {
-      return cached.body as T;
+    const hit = l1Cache.get(cacheKey);
+    if (hit && Date.now() < hit.expiresAt) {
+      return hit.body as T;
+    }
+  }
+
+  // L2 check (DB — only on L1 miss)
+  if (cacheKey) {
+    const dbBody = await l2Get(cacheKey);
+    if (dbBody !== null) {
+      // Warm L1 so subsequent calls in this process skip DB
+      l1Cache.set(cacheKey, { body: dbBody, expiresAt: Date.now() + cacheTtlMs });
+      return dbBody as T;
     }
   }
 
@@ -89,7 +152,9 @@ export async function httpGet<T>(
       const body = (await res.json()) as T;
 
       if (cacheKey) {
-        responseCache.set(cacheKey, { body, expiresAt: Date.now() + cacheTtlMs });
+        // Write to both L1 and L2
+        l1Cache.set(cacheKey, { body, expiresAt: Date.now() + cacheTtlMs });
+        l2Set(cacheKey, body, cacheTtlMs).catch(() => {}); // fire-and-forget
       }
 
       return body;

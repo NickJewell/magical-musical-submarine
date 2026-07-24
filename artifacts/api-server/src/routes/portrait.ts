@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { db, seedsTable, portraitsTable, tasteEventsTable } from "@workspace/db";
 import { eq, desc } from "drizzle-orm";
+import { createHash } from "node:crypto";
 import {
   GetPortraitQueryParams,
   UpdatePortraitBody,
@@ -19,6 +20,32 @@ function formatPortrait(p: typeof portraitsTable.$inferSelect) {
     source: p.source,
     generatedAt: p.generatedAt.toISOString(),
   };
+}
+
+/**
+ * Compute a stable SHA-256 fingerprint over the seeds + pair choices that
+ * were used to generate a portrait. If the inputs haven't changed since the
+ * last LLM generation we can return the cached portrait without paying for
+ * another LLM call.
+ */
+function computeSeedsHash(
+  seeds: Array<{ title: string; artist: string; year?: number | null; prompt?: string | null }>,
+  pairChoices: Array<{ winner: string; loser: string; strength: number }>
+): string {
+  const payload = JSON.stringify({
+    seeds: seeds.map((s) => ({
+      title: s.title.trim().toLowerCase(),
+      artist: s.artist.trim().toLowerCase(),
+      year: s.year ?? null,
+      prompt: s.prompt ?? null,
+    })),
+    pairs: pairChoices.map((p) => ({
+      winner: p.winner.trim().toLowerCase(),
+      loser: p.loser.trim().toLowerCase(),
+      strength: p.strength,
+    })),
+  });
+  return createHash("sha256").update(payload).digest("hex");
 }
 
 // GET /portrait
@@ -105,6 +132,26 @@ router.post("/portrait/generate", async (req, res): Promise<void> => {
     return { winner, loser, strength: Math.abs(result) };
   });
 
+  const seedsHash = computeSeedsHash(
+    seeds.map((s) => ({ title: s.title, artist: s.artist, year: s.year, prompt: s.prompt })),
+    pairChoices
+  );
+
+  // Check whether the latest LLM-generated portrait already matches these inputs
+  const existing = await db
+    .select()
+    .from(portraitsTable)
+    .where(eq(portraitsTable.userId, userId))
+    .orderBy(desc(portraitsTable.version))
+    .limit(1);
+
+  const latest = existing[0];
+  if (latest && latest.source === "llm" && latest.seedsHash === seedsHash) {
+    // Inputs haven't changed — return the cached portrait, no LLM call needed
+    res.json({ ...formatPortrait(latest), cached: true });
+    return;
+  }
+
   const text = await generatePortrait({
     seeds: seeds.map((s) => ({
       title: s.title,
@@ -115,18 +162,11 @@ router.post("/portrait/generate", async (req, res): Promise<void> => {
     pairChoices,
   });
 
-  const existing = await db
-    .select()
-    .from(portraitsTable)
-    .where(eq(portraitsTable.userId, userId))
-    .orderBy(desc(portraitsTable.version))
-    .limit(1);
-
-  const nextVersion = existing.length > 0 ? existing[0].version + 1 : 1;
+  const nextVersion = latest ? latest.version + 1 : 1;
 
   const [portrait] = await db
     .insert(portraitsTable)
-    .values({ userId, version: nextVersion, text, source: "llm" })
+    .values({ userId, version: nextVersion, text, source: "llm", seedsHash })
     .returning();
 
   res.json(formatPortrait(portrait));

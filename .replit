@@ -1,4 +1,4 @@
-modules = ["nodejs-24"]
+modules = ["nodejs-24", "postgresql-16"]
 
 [deployment]
 router = "application"
@@ -25,3 +25,6 @@ timeoutMs = 20000
 APP_BASE_URL = "http://localhost:80"
 OPENROUTER_NARRATE_MODEL = "meta-llama/llama-3.3-70b-instruct"
 OPENROUTER_PROPOSE_MODEL = "deepseek/deepseek-chat"
+
+[nix]
+channel = "stable-25_05"

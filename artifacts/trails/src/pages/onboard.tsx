@@ -15,6 +15,7 @@ import { Input } from '@/components/ui/input';
 import { Loader2, Search, Plus, ChevronDown } from 'lucide-react';
 import { Textarea } from '@/components/ui/textarea';
 import { PairwiseSlider } from '@/components/PairwiseSlider';
+import { CanonDuelCard } from '@/components/CanonDuelCard';
 
 interface PromptCategory {
   category: string;
@@ -192,14 +193,31 @@ const PROMPT_CATEGORIES: PromptCategory[] = [
   },
 ];
 
-// Pre-shuffle categories and pick one random prompt per category — called once per session
-function buildPromptSequence() {
+type PromptEntry =
+  | { type: 'seed'; category: string; isNegative: boolean; prompt: string }
+  | { type: 'duel' };
+
+const CANON_DUEL_RATIO = 0.3; // ~30 % of prompts are canon duels
+
+// Pre-shuffle categories and interleave canon duels at CANON_DUEL_RATIO
+function buildPromptSequence(): PromptEntry[] {
   const shuffledCats = [...PROMPT_CATEGORIES].sort(() => Math.random() - 0.5);
-  return shuffledCats.map((cat) => ({
+  const seedEntries: PromptEntry[] = shuffledCats.map((cat) => ({
+    type: 'seed',
     category: cat.category,
     isNegative: cat.isNegative ?? false,
     prompt: cat.prompts[Math.floor(Math.random() * cat.prompts.length)],
   }));
+
+  // Sprinkle duel slots at roughly CANON_DUEL_RATIO frequency
+  const result: PromptEntry[] = [];
+  for (const entry of seedEntries) {
+    if (Math.random() < CANON_DUEL_RATIO) {
+      result.push({ type: 'duel' });
+    }
+    result.push(entry);
+  }
+  return result;
 }
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
@@ -278,8 +296,9 @@ function Phase1Seeding({ userId, onComplete }: { userId: number, onComplete: () 
   const currentEntry = sequence[seqIdx % sequence.length];
 
   const handleAddSeed = (mbid: string, title: string, artist: string, year: number | null) => {
+    const prompt = currentEntry.type === 'seed' ? currentEntry.prompt : undefined;
     addSeed.mutate({
-      data: { userId, mbid, type: 'track', title, artist, year, prompt: currentEntry.prompt }
+      data: { userId, mbid, type: 'track', title, artist, year, prompt }
     }, {
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: getListSeedsQueryKey({ userId }) });
@@ -306,90 +325,102 @@ function Phase1Seeding({ userId, onComplete }: { userId: number, onComplete: () 
         </p>
       )}
 
-      <div className="flex-1 flex flex-col justify-center">
-        {/* Category label */}
-        <div className="flex items-center justify-center gap-2 mb-3">
-          {currentEntry.isNegative ? (
-            <span className="text-[10px] font-mono uppercase tracking-widest px-2.5 py-0.5 rounded-full border border-amber-500/40 text-amber-400/80 bg-amber-500/5">
-              what you avoid
-            </span>
-          ) : (
-            <span className="text-[10px] font-mono text-muted-foreground/50 uppercase tracking-widest">
-              {currentEntry.category}
-            </span>
-          )}
-        </div>
-
-        <h2 className="text-2xl font-bold text-foreground mb-6 text-center leading-snug">
-          {currentEntry.prompt}
-        </h2>
-
-        <div className="relative mb-4">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground w-5 h-5" />
-          <Input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search for a track..."
-            className="pl-12 h-14 rounded-full bg-secondary/20 border-primary/20 focus-visible:border-primary text-lg"
+      {currentEntry.type === 'duel' ? (
+        /* ---- Canon Duel slot ---- */
+        <div className="flex-1 flex flex-col justify-center">
+          <CanonDuelCard
+            userId={userId}
+            strategy="contrastive"
+            onDone={() => setSeqIdx((i) => i + 1)}
           />
         </div>
+      ) : (
+        /* ---- Psychographic seed prompt ---- */
+        <div className="flex-1 flex flex-col justify-center">
+          {/* Category label */}
+          <div className="flex items-center justify-center gap-2 mb-3">
+            {currentEntry.isNegative ? (
+              <span className="text-[10px] font-mono uppercase tracking-widest px-2.5 py-0.5 rounded-full border border-amber-500/40 text-amber-400/80 bg-amber-500/5">
+                what you avoid
+              </span>
+            ) : (
+              <span className="text-[10px] font-mono text-muted-foreground/50 uppercase tracking-widest">
+                {currentEntry.category}
+              </span>
+            )}
+          </div>
 
-        <div className="flex-1 overflow-y-auto min-h-[200px] space-y-1.5">
-          {/* Search error */}
-          {isSearchError && (
-            <div className="text-center p-4 text-sm text-destructive">
-              Search timed out, please try again.
-            </div>
-          )}
+          <h2 className="text-2xl font-bold text-foreground mb-6 text-center leading-snug">
+            {currentEntry.prompt}
+          </h2>
 
-          {/* Initial load spinner */}
-          {!isSearchError && isSearching && allResults.length === 0 && (
-            <div className="text-center p-4">
-              <Loader2 className="w-5 h-5 animate-spin mx-auto text-primary" />
-            </div>
-          )}
+          <div className="relative mb-4">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground w-5 h-5" />
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search for a track..."
+              className="pl-12 h-14 rounded-full bg-secondary/20 border-primary/20 focus-visible:border-primary text-lg"
+            />
+          </div>
 
-          {/* Result rows */}
-          {hasResults && allResults.map((r) => (
-            <button
-              key={`${r.mbid}-${r.title}`}
-              onClick={() => handleAddSeed(r.mbid, r.title, r.artist, r.year)}
-              disabled={addSeed.isPending}
-              className="w-full text-left p-4 rounded-xl bg-secondary/20 hover:bg-secondary/50 active:bg-secondary/70 transition-colors flex items-center gap-4 border border-border/30 hover:border-primary/40 group"
-            >
-              <div className="flex-1 min-w-0 space-y-0.5">
-                <p className="font-semibold text-base text-foreground truncate leading-tight">{r.title}</p>
-                <p className="text-sm font-medium text-primary/90 truncate">{r.artist}</p>
-                {r.release && <p className="text-xs text-muted-foreground truncate">{r.release}</p>}
+          <div className="flex-1 overflow-y-auto min-h-[200px] space-y-1.5">
+            {/* Search error */}
+            {isSearchError && (
+              <div className="text-center p-4 text-sm text-destructive">
+                Search timed out, please try again.
               </div>
-              <div className="flex items-center gap-2 shrink-0">
-                {r.year && (
-                  <span className="text-xs font-mono text-muted-foreground bg-secondary/60 px-2 py-0.5 rounded-full border border-border/50">
-                    {r.year}
-                  </span>
-                )}
-                <div className="w-7 h-7 rounded-full bg-primary/15 flex items-center justify-center group-hover:bg-primary/30 transition-colors">
-                  <Plus className="w-3.5 h-3.5 text-primary" />
+            )}
+
+            {/* Initial load spinner */}
+            {!isSearchError && isSearching && allResults.length === 0 && (
+              <div className="text-center p-4">
+                <Loader2 className="w-5 h-5 animate-spin mx-auto text-primary" />
+              </div>
+            )}
+
+            {/* Result rows */}
+            {hasResults && allResults.map((r) => (
+              <button
+                key={`${r.mbid}-${r.title}`}
+                onClick={() => handleAddSeed(r.mbid, r.title, r.artist, r.year)}
+                disabled={addSeed.isPending}
+                className="w-full text-left p-4 rounded-xl bg-secondary/20 hover:bg-secondary/50 active:bg-secondary/70 transition-colors flex items-center gap-4 border border-border/30 hover:border-primary/40 group"
+              >
+                <div className="flex-1 min-w-0 space-y-0.5">
+                  <p className="font-semibold text-base text-foreground truncate leading-tight">{r.title}</p>
+                  <p className="text-sm font-medium text-primary/90 truncate">{r.artist}</p>
+                  {r.release && <p className="text-xs text-muted-foreground truncate">{r.release}</p>}
                 </div>
-              </div>
-            </button>
-          ))}
+                <div className="flex items-center gap-2 shrink-0">
+                  {r.year && (
+                    <span className="text-xs font-mono text-muted-foreground bg-secondary/60 px-2 py-0.5 rounded-full border border-border/50">
+                      {r.year}
+                    </span>
+                  )}
+                  <div className="w-7 h-7 rounded-full bg-primary/15 flex items-center justify-center group-hover:bg-primary/30 transition-colors">
+                    <Plus className="w-3.5 h-3.5 text-primary" />
+                  </div>
+                </div>
+              </button>
+            ))}
 
-          {/* Load more */}
-          {hasResults && (
-            <button
-              onClick={() => setPage(p => p + 1)}
-              disabled={!canLoadMore}
-              className="w-full py-3 flex items-center justify-center gap-2 text-xs font-mono text-muted-foreground hover:text-primary transition-colors disabled:opacity-40"
-            >
-              {isFetching
-                ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                : <ChevronDown className="w-3.5 h-3.5" />}
-              {isFetching ? 'Loading…' : 'Load more results'}
-            </button>
-          )}
+            {/* Load more */}
+            {hasResults && (
+              <button
+                onClick={() => setPage(p => p + 1)}
+                disabled={!canLoadMore}
+                className="w-full py-3 flex items-center justify-center gap-2 text-xs font-mono text-muted-foreground hover:text-primary transition-colors disabled:opacity-40"
+              >
+                {isFetching
+                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  : <ChevronDown className="w-3.5 h-3.5" />}
+                {isFetching ? 'Loading…' : 'Load more results'}
+              </button>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="pt-6 mt-auto space-y-3">
         {canProceed && (

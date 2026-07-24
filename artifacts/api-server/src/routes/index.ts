@@ -11,6 +11,8 @@ import linksRouter from "./links";
 import metricsRouter from "./metrics";
 import timelineRouter from "./timeline";
 import spotifyRouter from "./spotify";
+import duelRouter from "./duel";
+import canonRouter from "./canon";
 
 const router: IRouter = Router();
 
@@ -26,5 +28,7 @@ router.use(linksRouter);
 router.use(metricsRouter);
 router.use(timelineRouter);
 router.use(spotifyRouter);
+router.use(duelRouter);
+router.use(canonRouter);
 
 export default router;

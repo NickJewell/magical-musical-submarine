@@ -12,6 +12,7 @@ export const seedsTable = pgTable("seeds", {
   artist: text("artist").notNull(),
   year: integer("year"),
   prompt: text("prompt"),
+  source: text("source").default("user"), // user | canon_duel | imported
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

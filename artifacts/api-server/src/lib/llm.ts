@@ -377,3 +377,72 @@ Write a 150-220 word personalized narrative for this recommendation.`;
 
   return narrative.trim();
 }
+
+// ---- Canon candidate generation (§17.3.1) ----
+
+export interface CanonCandidate {
+  title: string;
+  artist: string;
+  year?: number | null;
+  genre?: string | null;
+  region?: string | null;
+}
+
+export async function generateCanonCandidates(
+  genre: string,
+  era: string,
+  count: number,
+  region?: string,
+): Promise<CanonCandidate[]> {
+  const regionClause = region ? ` from ${region}` : "";
+  const userPrompt =
+    `Generate a list of ${count} widely-acclaimed, must-hear ${genre} tracks${regionClause} from the ${era} period.` +
+    ` Prioritize breadth: cover sub-genres, regions, genders, and cultural backgrounds within ${genre}.` +
+    ` Include obscure gems alongside widely-known classics — the goal is a representative canon, not a chart list.` +
+    ` Return ONLY the JSON array. No commentary.`;
+
+  const schema = {
+    type: "object",
+    properties: {
+      tracks: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            title:  { type: "string" },
+            artist: { type: "string" },
+            year:   { type: ["integer", "null"] },
+            genre:  { type: ["string", "null"] },
+            region: { type: ["string", "null"] },
+          },
+          required: ["title", "artist"],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ["tracks"],
+    additionalProperties: false,
+  };
+
+  const raw = await chat(
+    PROPOSE_MODEL,
+    [
+      {
+        role: "system",
+        content:
+          "You are a music historian compiling canonical must-hear tracks." +
+          " Output only the requested JSON. Never hallucinate MBIDs — just title, artist, year, genre, region.",
+      },
+      { role: "user", content: userPrompt },
+    ],
+    { type: "json_schema", json_schema: { name: "canon_candidates", schema, strict: true } },
+  );
+
+  try {
+    const parsed = JSON.parse(raw) as { tracks: CanonCandidate[] };
+    return parsed.tracks ?? [];
+  } catch {
+    logger.warn({ raw }, "generateCanonCandidates: JSON parse failed");
+    return [];
+  }
+}

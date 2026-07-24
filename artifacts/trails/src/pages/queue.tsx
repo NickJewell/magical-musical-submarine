@@ -36,6 +36,7 @@ function QueueContent({ userId, diveId, onNavigate }: { userId: number, diveId: 
   const stepId = dive?.steps?.[dive.steps.length - 1]?.id;
 
   const [hasStartedFetch, setHasStartedFetch] = useState(false);
+  const [ratedCount, setRatedCount] = useState(0);
   const getRecommendations = useGetRecommendations();
 
   const mutateRef = useRef(getRecommendations.mutate);
@@ -103,9 +104,6 @@ function QueueContent({ userId, diveId, onNavigate }: { userId: number, diveId: 
   const recs = getRecommendations.data;
   const llmRecs = recs.filter(r => r.arm === 'llm');
   const controlRecs = recs.filter(r => r.arm === 'well_trodden');
-  
-  // To show path rating, we need at least one rating submitted
-  const [ratedCount, setRatedCount] = useState(0);
 
   return (
     <div className="p-6 pt-12 max-w-md mx-auto space-y-12 pb-32 animate-in fade-in duration-1000">

@@ -15,13 +15,191 @@ import { Loader2, Search, Plus, ChevronDown } from 'lucide-react';
 import { Textarea } from '@/components/ui/textarea';
 import { PairwiseSlider } from '@/components/PairwiseSlider';
 
-const PROMPTS = [
-  "A song you put on to focus",
-  "Something you loved at 15 and still defend",
-  "What plays when you're driving alone at night",
-  "A track that feels like deep water",
-  "Your personal anthem right now"
+interface PromptCategory {
+  category: string;
+  prompts: string[];
+  isNegative?: boolean;
+}
+
+const PROMPT_CATEGORIES: PromptCategory[] = [
+  {
+    category: "Memory & autobiography",
+    prompts: [
+      "A song from a home you no longer live in.",
+      "The first song you remember loving before you knew what music was.",
+      "A song a parent or grandparent played that's now yours.",
+      "A song that plays in a memory you can't fully explain.",
+      "The song of a specific summer — you can smell it.",
+      "A song from a bedroom you spent too much time in.",
+      "A song tied to a meal, a kitchen, a smell of cooking.",
+      "A song you associate with being very young and very bored.",
+      "The song from the best night you can barely remember.",
+      "A song that instantly makes you a teenager again.",
+    ],
+  },
+  {
+    category: "Place & motion",
+    prompts: [
+      "A song that is a particular city or town to you.",
+      "What you'd play driving somewhere at night, alone.",
+      "A song for a long train or plane window.",
+      "The song of a specific walk you've done a hundred times.",
+      "A song that sounds like a place you've never been but want to go.",
+      "Music tied to water — a coast, a lake, rain.",
+      "A song you'd want playing the moment you arrive somewhere new.",
+      "A song that belongs to a road trip.",
+    ],
+  },
+  {
+    category: "People & love",
+    prompts: [
+      "A song that is entirely one person.",
+      "The song from the start of a relationship.",
+      "The song from the end of one.",
+      "A song you'd never admit reminds you of someone.",
+      "A song you'd put on to feel close to someone far away.",
+      "A song a friend gave you that stuck.",
+      "A song you associate with a group of people, not one.",
+      "The song you'd want at your wedding — or refuse to have.",
+      "A song about someone you've forgiven.",
+      "A song you can't hear without thinking of someone gone.",
+    ],
+  },
+  {
+    category: "Mood regulation",
+    prompts: [
+      "What you play when you need to feel something.",
+      "What you put on when you're already sad and want to stay there.",
+      "A song that reliably lifts a bad mood.",
+      "What you reach for when you're anxious.",
+      "A song that's pure comfort, like a blanket.",
+      "A song you use to get angry on purpose.",
+      "What you play to feel calm and in control.",
+      "A song that helps you cry when you need to.",
+    ],
+  },
+  {
+    category: "Function & ritual",
+    prompts: [
+      "What you play to focus and disappear into work.",
+      "Your cleaning-the-house song.",
+      "What's on when you cook.",
+      "Your going-out, getting-ready song.",
+      "What you'd run to when you want to push harder.",
+      "A song for winding down before sleep.",
+      "What you play first thing in the morning.",
+      "A song that's basically a productivity cheat code for you.",
+    ],
+  },
+  {
+    category: "Identity & self-image",
+    prompts: [
+      "A song that feels like your personality in three minutes.",
+      "The song you'd use to explain yourself to a stranger.",
+      "Something you loved at 15 and still defend.",
+      "A song that made you feel understood for the first time.",
+      "A song that changed how you thought about music.",
+      "A song you feel cooler for loving.",
+      "A song that feels like the person you're becoming.",
+      "A song you'd want on your funeral playlist.",
+    ],
+  },
+  {
+    category: "Shadow & guilty pleasure",
+    prompts: [
+      "Something embarrassing you'd defend to the death.",
+      "A song you love but would turn down if someone walked in.",
+      "A song you hated at first and now adore.",
+      "A song you loved, then got sick of, then loved again.",
+      "A song that's objectively bad and you don't care.",
+      "A guilty-pleasure genre in one track.",
+      "A song you'd never put on a playlist for anyone else.",
+      "A song you're slightly ashamed of how much you've played.",
+    ],
+  },
+  {
+    category: "Body & sensation",
+    prompts: [
+      "A song that gives you chills every single time.",
+      "A song you cannot physically sit still to.",
+      "A song that makes the back of your neck prickle.",
+      "The song that makes you turn the volume up.",
+      "A song that hits you in the chest.",
+      "A song you'd want played loud, on a real system.",
+      "A song with a moment — a drop, a key change, a note — you wait for.",
+      "A song that feels physical, almost too much.",
+    ],
+  },
+  {
+    category: "Time & era",
+    prompts: [
+      "A decade you feel homesick for, in one song.",
+      "A song that sounds like autumn.",
+      "A song that sounds like 2am.",
+      "A song from before you were born that feels like yours.",
+      "A song that was everywhere once and you still love.",
+      "A song that sounds like the future used to sound.",
+      "A song tied to a specific age you were.",
+      "A song that feels like a Sunday.",
+    ],
+  },
+  {
+    category: "Aspiration & fantasy",
+    prompts: [
+      "A song you wish you'd written.",
+      "The song playing in the movie of your life's best scene.",
+      "A song you'd want to be able to play or sing.",
+      "A song that makes you feel capable of anything.",
+      "A song for a version of you that's braver.",
+      "A song you'd score a triumphant moment with.",
+      "A song that makes you want to be somewhere else entirely.",
+    ],
+  },
+  {
+    category: "Negative space",
+    isNegative: true,
+    prompts: [
+      "A song you always skip — what is it about it?",
+      "A hugely loved song you just don't get.",
+      "A song ruined for you by overplay or association.",
+      "A genre you actively steer away from, named by one track.",
+      "A song you used to love that you can't listen to anymore.",
+      "An artist everyone loves that leaves you cold.",
+    ],
+  },
+  {
+    category: "Meaning & depth",
+    prompts: [
+      "A song whose lyrics you'd frame on a wall.",
+      "A song that says something you couldn't say yourself.",
+      "The most honest song you know.",
+      "A song that feels spiritual to you, religious or not.",
+      "A song that asks a question you keep thinking about.",
+      "A song that made you see something differently.",
+      "A song that feels like it knows a secret about being alive.",
+    ],
+  },
+  {
+    category: "Social & inherited",
+    prompts: [
+      "A song that only makes sense in a crowd.",
+      "A song you inherited from someone and never gave back.",
+      "A song that's an inside joke with someone.",
+      "A song you'd play to test if you'd get along with someone.",
+      "The song that got you into a whole scene or genre.",
+    ],
+  },
 ];
+
+// Pre-shuffle categories and pick one random prompt per category — called once per session
+function buildPromptSequence() {
+  const shuffledCats = [...PROMPT_CATEGORIES].sort(() => Math.random() - 0.5);
+  return shuffledCats.map((cat) => ({
+    category: cat.category,
+    isNegative: cat.isNegative ?? false,
+    prompt: cat.prompts[Math.floor(Math.random() * cat.prompts.length)],
+  }));
+}
 
 export default function OnboardPage() {
   const [, setLocation] = useLocation();
@@ -50,7 +228,8 @@ export default function OnboardPage() {
 function Phase1Seeding({ userId, onComplete }: { userId: number, onComplete: () => void }) {
   const queryClient = useQueryClient();
   const { data: seeds } = useListSeeds({ userId }, { query: { enabled: !!userId, queryKey: getListSeedsQueryKey({ userId }) } });
-  const [promptIdx, setPromptIdx] = useState(0);
+  const [sequence] = useState(buildPromptSequence);
+  const [seqIdx, setSeqIdx] = useState(0);
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [page, setPage] = useState(1);
@@ -83,16 +262,18 @@ function Phase1Seeding({ userId, onComplete }: { userId: number, onComplete: () 
 
   const addSeed = useAddSeed();
 
+  const currentEntry = sequence[seqIdx % sequence.length];
+
   const handleAddSeed = (mbid: string, title: string, artist: string, year: number | null) => {
     addSeed.mutate({
-      data: { userId, mbid, type: 'track', title, artist, year, prompt: PROMPTS[promptIdx] }
+      data: { userId, mbid, type: 'track', title, artist, year, prompt: currentEntry.prompt }
     }, {
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: getListSeedsQueryKey({ userId }) });
         setQuery('');
         setAllResults([]);
         setPage(1);
-        setPromptIdx((i) => (i + 1) % PROMPTS.length);
+        setSeqIdx((i) => i + 1);
       }
     });
   };
@@ -116,8 +297,21 @@ function Phase1Seeding({ userId, onComplete }: { userId: number, onComplete: () 
       )}
 
       <div className="flex-1 flex flex-col justify-center">
+        {/* Category label */}
+        <div className="flex items-center justify-center gap-2 mb-3">
+          {currentEntry.isNegative ? (
+            <span className="text-[10px] font-mono uppercase tracking-widest px-2.5 py-0.5 rounded-full border border-amber-500/40 text-amber-400/80 bg-amber-500/5">
+              what you avoid
+            </span>
+          ) : (
+            <span className="text-[10px] font-mono text-muted-foreground/50 uppercase tracking-widest">
+              {currentEntry.category}
+            </span>
+          )}
+        </div>
+
         <h2 className="text-2xl font-bold text-foreground mb-6 text-center leading-snug">
-          {PROMPTS[promptIdx]}
+          {currentEntry.prompt}
         </h2>
 
         <div className="relative mb-4">

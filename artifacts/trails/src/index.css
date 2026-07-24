@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Playfair+Display:ital,wght@0,400;0,500;1,400&display=swap');
 /* Clerk layer must be declared before tailwindcss on Tailwind v4 */
 @layer theme, base, clerk, components, utilities;
 @import 'tailwindcss';
@@ -81,7 +81,7 @@
 
   /* Bioluminescent cyan/teal */
   --primary: 180 80% 40%;
-  --primary-foreground: 220 50% 10%;
+  --primary-foreground: 0 0% 98%;
 
   /* Darker murky blue */
   --secondary: 220 30% 15%;
@@ -105,7 +105,7 @@
   --sidebar-accent-foreground: 210 20% 85%;
   --sidebar-ring: 180 80% 50%;
 
-  --app-font-sans: 'Space Mono', 'Outfit', sans-serif;
+  --app-font-sans: 'Outfit', sans-serif;
   --app-font-serif: 'Playfair Display', serif;
   --app-font-mono: 'Space Mono', monospace;
 

@@ -5,8 +5,8 @@
  */
 
 import { db, seedsTable, portraitsTable, diveStepsTable, recommendationsTable, ratingsTable, tasteEventsTable, divesTable } from "@workspace/db";
-import { eq, desc } from "drizzle-orm";
-import { enrichFromSeeds, type EnrichResult } from "./enrich";
+import { eq, desc, and } from "drizzle-orm";
+import { enrichFromSeeds, lastfmTopTrack, type EnrichResult } from "./enrich";
 import { resolve, MB_REQUEST_TIMEOUT_MS } from "./musicbrainz";
 import { resolveLinks } from "./links";
 import { propose, narrate } from "./llm";
@@ -211,7 +211,7 @@ export async function recommend(opts: { stepId: number; userId: number }) {
 
   // ---- Control arm: ALWAYS inserted regardless of LLM outcome ----
   // Source: Last.fm (verified external dataset); MB resolution attempted but not required.
-  const wtRec = await buildWellTroddenRec({ stepId, enrichData, wtDir, seeds, directionLabel });
+  const wtRec = await buildWellTroddenRec({ stepId, diveId: step.diveId, enrichData, wtDir, seeds, directionLabel });
 
   // ---- Persist all recs ----
   const allRecs = [...llmRecs, wtRec];
@@ -250,8 +250,33 @@ export async function recommend(opts: { stepId: number; userId: number }) {
   return formatRecs(inserted);
 }
 
+// ---- Keyword helpers for direction-aware scoring ----
+
+const WT_STOP_WORDS = new Set([
+  "with", "from", "that", "this", "they", "have", "been", "will", "more",
+  "into", "than", "also", "some", "most", "well", "trodden", "direction",
+  "obvious", "pick", "music", "sound", "style", "classic", "classics",
+  "standard", "standards", "the", "and", "for",
+]);
+
+function directionKeywords(text: string): string[] {
+  return text
+    .toLowerCase()
+    .split(/\W+/)
+    .filter((w) => w.length > 3 && !WT_STOP_WORDS.has(w));
+}
+
+/** Clean wtDir.label → candidate artist name (strip genre/descriptor noise) */
+function extractArtistFromLabel(label: string): string {
+  return label
+    .replace(/\b(classics?|standards?|picks?|direction|obvious|well[- ]trodden|music|sounds?)\b/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 async function buildWellTroddenRec(opts: {
   stepId: number;
+  diveId: number;
   enrichData: EnrichResult;
   wtDir: { label: string; rationale: string } | undefined;
   seeds: Array<{ artist: string; title: string }>;
@@ -268,23 +293,60 @@ async function buildWellTroddenRec(opts: {
   arm: string;
   likelyKnown: string;
 }> {
-  const { stepId, enrichData, wtDir, seeds } = opts;
+  const { stepId, diveId, enrichData, wtDir, seeds, directionLabel } = opts;
 
-  // Determine candidate from Last.fm similar-track → similar-artist → primary seed
-  let wtTitle: string;
-  let wtArtist: string;
+  // ---- 1. De-duplicate: skip artists already used in this dive's well_trodden recs ----
+  const priorWt = await db
+    .select({ artist: recommendationsTable.artist })
+    .from(recommendationsTable)
+    .innerJoin(diveStepsTable, eq(recommendationsTable.diveStepId, diveStepsTable.id))
+    .where(and(eq(diveStepsTable.diveId, diveId), eq(recommendationsTable.arm, "well_trodden")))
+    .catch(() => []);
+  const usedArtists = new Set(priorWt.map((r) => r.artist.toLowerCase()));
 
-  if (enrichData.similarTracks.length > 0) {
-    const st = enrichData.similarTracks[0];
-    wtTitle = st.name;
-    wtArtist = st.artist;
-  } else if (enrichData.similarArtists.length > 0) {
-    wtArtist = enrichData.similarArtists[0].name;
-    wtTitle = seeds[0]?.title ?? "a popular track";
-  } else {
-    // Last resort: use primary seed
-    wtArtist = seeds[0]?.artist ?? "Unknown artist";
-    wtTitle = seeds[0]?.title ?? "a popular track";
+  // ---- 2. Keyword scoring: rank candidates by alignment to wtDir + direction ----
+  const keywords = directionKeywords(`${wtDir?.label ?? ""} ${directionLabel}`);
+  const score = (text: string) =>
+    keywords.filter((kw) => text.toLowerCase().includes(kw)).length;
+
+  // ---- 3. First choice: use wtDir.label as the artist the LLM intended ----
+  let wtTitle: string | null = null;
+  let wtArtist: string | null = null;
+
+  if (wtDir?.label) {
+    const candidateArtist = extractArtistFromLabel(wtDir.label);
+    const isNotUsed = candidateArtist.length > 1 && !usedArtists.has(candidateArtist.toLowerCase());
+    if (isNotUsed) {
+      const topTrack = await lastfmTopTrack(candidateArtist).catch(() => null);
+      if (topTrack) {
+        wtTitle = topTrack.name;
+        wtArtist = candidateArtist;
+        logger.debug({ wtArtist, wtTitle, label: wtDir.label }, "Well-trodden: resolved from wtDir label");
+      }
+    }
+  }
+
+  // ---- 4. Fallback: score similar tracks/artists, prefer non-duplicates & direction-aligned ----
+  if (!wtArtist) {
+    const scoredTracks = enrichData.similarTracks
+      .map((t) => ({ ...t, _score: score(t.artist) + score(t.name), _used: usedArtists.has(t.artist.toLowerCase()) }))
+      .sort((a, b) => Number(a._used) - Number(b._used) || b._score - a._score || b.match - a.match);
+
+    const scoredArtists = enrichData.similarArtists
+      .map((a) => ({ ...a, _score: score(a.name), _used: usedArtists.has(a.name.toLowerCase()) }))
+      .sort((a, b) => Number(a._used) - Number(b._used) || b._score - a._score || b.match - a.match);
+
+    if (scoredTracks.length > 0) {
+      wtTitle  = scoredTracks[0].name;
+      wtArtist = scoredTracks[0].artist;
+    } else if (scoredArtists.length > 0) {
+      wtArtist = scoredArtists[0].name;
+      wtTitle  = seeds[0]?.title ?? "a popular track";
+    } else {
+      // Last resort: primary seed
+      wtArtist = seeds[0]?.artist ?? "Unknown artist";
+      wtTitle  = seeds[0]?.title  ?? "a popular track";
+    }
   }
 
   const narrative =

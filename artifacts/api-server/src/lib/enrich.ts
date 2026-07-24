@@ -111,6 +111,31 @@ async function lbSimilarArtists(artistMbid: string): Promise<SimilarArtist[]> {
   }
 }
 
+// ---- Top tracks for a given artist (used by well-trodden direction) ----
+
+export async function lastfmTopTrack(
+  artist: string,
+): Promise<{ name: string; artist: string } | null> {
+  if (!LASTFM_KEY) return null;
+  const url =
+    `${LASTFM_BASE}/?method=artist.gettoptracks&artist=${encodeURIComponent(artist)}` +
+    `&api_key=${LASTFM_KEY}&format=json&limit=3`;
+  try {
+    interface LFMTopResp {
+      toptracks?: { track?: Array<{ name: string }> };
+    }
+    const data = await httpGet<LFMTopResp>(url, {
+      cacheKey: `lfm:toptracks:${artist.toLowerCase()}`,
+      cacheTtlMs: 7 * 24 * 60 * 60 * 1000,
+    });
+    const track = data.toptracks?.track?.[0];
+    return track ? { name: track.name, artist } : null;
+  } catch (err) {
+    logger.debug({ err, artist }, "Last.fm artist.gettoptracks failed");
+    return null;
+  }
+}
+
 // ---- Public API ----
 
 export interface EnrichResult {

@@ -16,6 +16,10 @@ function NativeTabLayout() {
         <Icon sf={{ default: 'water.waves', selected: 'water.waves' }} />
         <Label>Dive</Label>
       </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="history">
+        <Icon sf={{ default: 'clock', selected: 'clock.fill' }} />
+        <Label>History</Label>
+      </NativeTabs.Trigger>
       <NativeTabs.Trigger name="portrait">
         <Icon sf={{ default: 'person.crop.circle', selected: 'person.crop.circle.fill' }} />
         <Label>Portrait</Label>
@@ -76,6 +80,18 @@ function ClassicTabLayout() {
               <SymbolView name="water.waves" tintColor={color} size={22} />
             ) : (
               <Feather name="anchor" size={22} color={color} />
+            ),
+        }}
+      />
+      <Tabs.Screen
+        name="history"
+        options={{
+          title: 'History',
+          tabBarIcon: ({ color }) =>
+            isIOS ? (
+              <SymbolView name="clock" tintColor={color} size={22} />
+            ) : (
+              <Feather name="clock" size={22} color={color} />
             ),
         }}
       />

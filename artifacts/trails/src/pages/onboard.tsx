@@ -298,15 +298,12 @@ function Phase1Seeding({ userId, onComplete }: { userId: number, onComplete: () 
 
   return (
     <div className="flex-1 flex flex-col animate-in fade-in duration-700">
-      {/* Added seeds chips */}
+      {/* Seed count indicator — no chip bubbles */}
       {seedCount > 0 && (
-        <div className="flex flex-wrap gap-2 mb-6">
-          {seeds?.map((s) => (
-            <div key={s.id} className="text-xs bg-primary/20 text-primary px-3 py-1 rounded-full border border-primary/30 font-medium">
-              {s.title}
-            </div>
-          ))}
-        </div>
+        <p className="text-[10px] font-mono text-muted-foreground/60 uppercase tracking-widest text-center mb-4">
+          {seedCount} {seedCount === 1 ? 'track' : 'tracks'} added
+          {canProceed ? ' · ready to continue' : ` · ${5 - seedCount} more to go`}
+        </p>
       )}
 
       <div className="flex-1 flex flex-col justify-center">

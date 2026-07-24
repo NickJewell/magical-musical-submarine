@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation } from '@tanstack/react-query';
+import { useRateRec } from '@workspace/api-client-react';
 import { useLocalUser } from '@/lib/useLocalUser';
 import { Button } from '@/components/ui/button';
 import {
@@ -7,7 +8,7 @@ import {
 } from '@/components/ui/dialog';
 import {
   Loader2, ChevronDown, ChevronUp, Star, ExternalLink,
-  Music, Radio,
+  Music, Radio, Check,
 } from 'lucide-react';
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
@@ -298,33 +299,135 @@ function DayColumn({
   );
 }
 
-// ---- Song detail dialog ----
+// ---- Song detail dialog (with inline rating) ----
 
-function SongDetail({ song, onClose }: { song: Song; onClose: () => void }) {
+const LISTEN_STATES = [
+  { value: 'listened', label: 'Listened' },
+  { value: 'known',    label: 'Already knew it' },
+  { value: 'skipped',  label: 'Skipped' },
+] as const;
+
+const STAR_LABELS: Record<number, string> = { 1: 'less of this', 2: 'middle ground', 3: 'more of this' };
+
+function SongDetail({
+  song, userId, onClose, onRated,
+}: {
+  song: Song;
+  userId: number;
+  onClose: () => void;
+  onRated: (recId: number, score: number | null, listenState: string) => void;
+}) {
   const links = song.linksJson;
+
+  const [listenState, setListenState] = useState<string | null>(song.listenState);
+  const [score, setScore]             = useState<number | null>(song.score);
+  const [saved, setSaved]             = useState(false);
+
+  const rateRec = useRateRec();
+
+  const showStars = listenState === 'listened' || listenState === 'known';
+
+  function handleListenState(state: string) {
+    const newScore = state === 'skipped' ? null : score;
+    setListenState(state);
+    if (state === 'skipped') setScore(null);
+    submit(state, newScore);
+  }
+
+  function handleStar(s: number) {
+    setScore(s);
+    if (listenState) submit(listenState, s);
+  }
+
+  function submit(state: string, s: number | null) {
+    rateRec.mutate(
+      { data: { userId, recId: song.recId, listenState: state as 'listened' | 'known' | 'skipped', score: s ?? undefined } },
+      {
+        onSuccess: () => {
+          setSaved(true);
+          onRated(song.recId, s, state);
+          setTimeout(() => setSaved(false), 1500);
+        },
+      },
+    );
+  }
+
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent className="max-w-sm mx-auto rounded-2xl bg-background border-border/50">
+      <DialogContent className="max-w-sm mx-auto rounded-2xl bg-background border-border/50 space-y-4">
         <DialogHeader>
           <DialogTitle className="font-serif text-lg text-foreground leading-snug">{song.title}</DialogTitle>
           <p className="text-sm text-muted-foreground">{song.artist}</p>
         </DialogHeader>
 
-        {song.score !== null && (
-          <div className="flex items-center gap-2">
-            <Stars score={song.score} />
-            <span className="text-xs font-mono text-muted-foreground">{song.score}/3</span>
+        {/* ── Rating section ── */}
+        <div className="space-y-3 border border-border/30 rounded-xl p-3 bg-secondary/10">
+          {/* Listen-state buttons */}
+          <div className="flex gap-1.5 flex-wrap">
+            {LISTEN_STATES.map(({ value, label }) => (
+              <button
+                key={value}
+                onClick={() => handleListenState(value)}
+                className={`text-xs font-mono px-3 py-1.5 rounded-full border transition-colors ${
+                  listenState === value
+                    ? 'bg-primary text-primary-foreground border-primary'
+                    : 'border-border/40 text-muted-foreground hover:border-primary/50 hover:text-foreground'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
           </div>
-        )}
 
+          {/* Star picker — only for listened/known */}
+          {showStars && (
+            <div className="flex items-center gap-2">
+              <div className="flex gap-1">
+                {[1, 2, 3].map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => handleStar(s)}
+                    className="transition-transform hover:scale-110"
+                  >
+                    <Star
+                      className={`w-6 h-6 transition-colors ${
+                        score !== null && s <= score
+                          ? 'fill-amber-400 text-amber-400'
+                          : 'fill-transparent text-muted-foreground/30'
+                      }`}
+                    />
+                  </button>
+                ))}
+              </div>
+              {score !== null && (
+                <span className="text-[10px] font-mono text-muted-foreground/60 uppercase tracking-wide">
+                  {STAR_LABELS[score]}
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Save confirmation */}
+          {saved && (
+            <p className="flex items-center gap-1 text-[10px] font-mono text-primary uppercase tracking-wide animate-in fade-in duration-200">
+              <Check className="w-3 h-3" /> Saved
+            </p>
+          )}
+          {rateRec.isError && (
+            <p className="text-[10px] text-destructive">Failed to save — try again</p>
+          )}
+        </div>
+
+        {/* ── Narrative ── */}
         {song.narrativeText && (
           <p className="text-sm font-serif leading-relaxed text-foreground/80 whitespace-pre-wrap">
             {song.narrativeText}
           </p>
         )}
 
+        {/* ── Streaming links ── */}
         {links && (
-          <div className="flex flex-wrap gap-2 pt-2">
+          <div className="flex flex-wrap gap-2">
             {links.spotify && (
               <a href={links.spotify} target="_blank" rel="noopener noreferrer"
                 className="flex items-center gap-1.5 text-xs bg-[#1DB954]/15 text-[#1DB954] border border-[#1DB954]/30 px-3 py-1.5 rounded-full hover:bg-[#1DB954]/25 transition-colors">
@@ -373,6 +476,23 @@ function TimelineContent({ userId }: { userId: number }) {
   const [selectedSong, setSelectedSong] = useState<Song | null>(null);
 
   const today = new Date().toISOString().slice(0, 10);
+
+  // Update a song's score + listenState in-place after a rating is saved
+  const handleRated = useCallback((recId: number, score: number | null, listenState: string) => {
+    setAllDays((prev) =>
+      prev.map((day) => ({
+        ...day,
+        paths: day.paths.map((path) => ({
+          ...path,
+          songs: path.songs.map((s) =>
+            s.recId === recId ? { ...s, score, listenState } : s,
+          ),
+        })),
+      })),
+    );
+    // Also keep the open dialog in sync
+    setSelectedSong((s) => (s && s.recId === recId ? { ...s, score, listenState } : s));
+  }, []);
 
   // Initial load
   const { data: initial, isLoading } = useQuery({
@@ -500,7 +620,12 @@ function TimelineContent({ userId }: { userId: number }) {
 
       {/* Song detail modal */}
       {selectedSong && (
-        <SongDetail song={selectedSong} onClose={() => setSelectedSong(null)} />
+        <SongDetail
+          song={selectedSong}
+          userId={userId}
+          onClose={() => setSelectedSong(null)}
+          onRated={handleRated}
+        />
       )}
     </div>
   );

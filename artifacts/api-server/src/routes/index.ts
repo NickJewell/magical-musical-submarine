@@ -9,6 +9,8 @@ import divesRouter from "./dives";
 import ratingsRouter from "./ratings";
 import linksRouter from "./links";
 import metricsRouter from "./metrics";
+import timelineRouter from "./timeline";
+import spotifyRouter from "./spotify";
 
 const router: IRouter = Router();
 
@@ -22,5 +24,7 @@ router.use(divesRouter);
 router.use(ratingsRouter);
 router.use(linksRouter);
 router.use(metricsRouter);
+router.use(timelineRouter);
+router.use(spotifyRouter);
 
 export default router;

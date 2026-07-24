@@ -8,6 +8,7 @@ export const resolvedEntitiesTable = pgTable("resolved_entities", {
   year: integer("year"),
   relationshipsJson: jsonb("relationships_json"),
   resolvedAt: timestamp("resolved_at", { withTimezone: true }).notNull().defaultNow(),
+  spotifyUri: text("spotify_uri"),
 });
 
 export type ResolvedEntity = typeof resolvedEntitiesTable.$inferSelect;

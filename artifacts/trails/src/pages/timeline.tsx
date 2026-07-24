@@ -10,6 +10,7 @@ import {
   Loader2, ChevronDown, ChevronUp, Star, ExternalLink,
   Music, Radio, Check,
 } from 'lucide-react';
+import { InlinePlayer, type ResolvedLinks } from '@/components/InlinePlayer';
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
 
@@ -17,14 +18,28 @@ const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
 
 interface Song {
   recId: number;
+  mbid: string;
+  type: string;
   title: string;
   artist: string;
+  artworkUrl: string | null;
   score: number | null;
   listenState: string | null;
   reviewText: string | null;
   arm: string;
-  linksJson: Record<string, string | null> | null;
+  linksJson: Record<string, unknown> | null;
   narrativeText: string | null;
+}
+
+/** Extract embed IDs from stored linksJson (may be absent on old recs). */
+function linksToResolved(linksJson: Record<string, unknown> | null): ResolvedLinks | null {
+  if (!linksJson) return null;
+  return {
+    spotify:        (linksJson.spotify        as string | null) ?? null,
+    youtube:        (linksJson.youtube        as string | null) ?? null,
+    spotifyTrackId: (linksJson.spotifyTrackId as string | null) ?? null,
+    youtubeVideoId: (linksJson.youtubeVideoId as string | null) ?? null,
+  };
 }
 
 interface PathSummary { count: number; avgScore: number | null; newCount: number }
@@ -321,14 +336,42 @@ function SongDetail({
   onClose: () => void;
   onRated: (recId: number, score: number | null, listenState: string) => void;
 }) {
-  const links = song.linksJson;
-
   const [listenState, setListenState] = useState<string | null>(song.listenState);
   const [score, setScore]             = useState<number | null>(song.score);
   const [saved, setSaved]             = useState(false);
 
-  const rateRec = useRateRec();
+  // ── Link resolution state ──
+  const [resolvedLinks, setResolvedLinks] = useState<ResolvedLinks | null>(
+    () => linksToResolved(song.linksJson),
+  );
+  const [isLoadingLinks, setIsLoadingLinks] = useState(false);
+  const [playerActive, setPlayerActive]     = useState(false);
 
+  // Artwork: from links fetch > DB artwork_url column
+  const artworkUrl =
+    (resolvedLinks as (ResolvedLinks & { artworkUrl?: string | null }) | null)?.artworkUrl ??
+    song.artworkUrl;
+
+  const handleNeedLinks = useCallback(async () => {
+    if (isLoadingLinks) return;
+    const hasEmbedIds = !!(resolvedLinks?.spotifyTrackId || resolvedLinks?.youtubeVideoId);
+    if (hasEmbedIds) return;
+    setIsLoadingLinks(true);
+    try {
+      const params = new URLSearchParams({
+        mbid: song.mbid, type: song.type, title: song.title, artist: song.artist,
+      });
+      const r = await fetch(`${basePath}/api/links?${params}`);
+      if (r.ok) {
+        const data = await r.json();
+        setResolvedLinks(data);
+      }
+    } finally {
+      setIsLoadingLinks(false);
+    }
+  }, [song.mbid, song.type, song.title, song.artist, resolvedLinks, isLoadingLinks]);
+
+  const rateRec = useRateRec();
   const showStars = listenState === 'listened' || listenState === 'known';
 
   function handleListenState(state: string) {
@@ -356,17 +399,51 @@ function SongDetail({
     );
   }
 
+  const rawLinks = song.linksJson as Record<string, string | null> | null;
+
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
       <DialogContent className="max-w-sm mx-auto rounded-2xl bg-background border-border/50 space-y-4">
+
+        {/* ── Header with artwork ── */}
         <DialogHeader>
-          <DialogTitle className="font-serif text-lg text-foreground leading-snug">{song.title}</DialogTitle>
-          <p className="text-sm text-muted-foreground">{song.artist}</p>
+          <div className="flex items-center gap-3">
+            {/* Artwork thumbnail */}
+            <div className="w-16 h-16 rounded-xl bg-secondary/50 border border-primary/10 overflow-hidden relative flex items-center justify-center flex-shrink-0 shadow-md">
+              <span className="text-xl font-mono font-bold text-primary/20 select-none absolute">
+                {(song.artist[0] ?? song.title[0] ?? '?').toUpperCase()}
+              </span>
+              {artworkUrl && (
+                <img
+                  src={artworkUrl}
+                  alt=""
+                  className="w-full h-full object-cover relative"
+                  onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                />
+              )}
+            </div>
+            <div className="min-w-0">
+              <DialogTitle className="font-serif text-lg text-foreground leading-snug">{song.title}</DialogTitle>
+              <p className="text-sm text-muted-foreground">{song.artist}</p>
+            </div>
+          </div>
         </DialogHeader>
+
+        {/* ── Inline player ── */}
+        <InlinePlayer
+          recId={song.recId}
+          links={resolvedLinks}
+          isLoadingLinks={isLoadingLinks}
+          onNeedLinks={handleNeedLinks}
+          activeRecId={playerActive ? song.recId : null}
+          onActivate={(id) => {
+            setPlayerActive(id !== null);
+            if (id !== null) handleNeedLinks();
+          }}
+        />
 
         {/* ── Rating section ── */}
         <div className="space-y-3 border border-border/30 rounded-xl p-3 bg-secondary/10">
-          {/* Listen-state buttons */}
           <div className="flex gap-1.5 flex-wrap">
             {LISTEN_STATES.map(({ value, label }) => (
               <button
@@ -383,16 +460,11 @@ function SongDetail({
             ))}
           </div>
 
-          {/* Star picker — only for listened/known */}
           {showStars && (
             <div className="flex items-center gap-2">
               <div className="flex gap-1">
                 {[1, 2, 3].map((s) => (
-                  <button
-                    key={s}
-                    onClick={() => handleStar(s)}
-                    className="transition-transform hover:scale-110"
-                  >
+                  <button key={s} onClick={() => handleStar(s)} className="transition-transform hover:scale-110">
                     <Star
                       className={`w-6 h-6 transition-colors ${
                         score !== null && s <= score
@@ -411,7 +483,6 @@ function SongDetail({
             </div>
           )}
 
-          {/* Save confirmation */}
           {saved && (
             <p className="flex items-center gap-1 text-[10px] font-mono text-primary uppercase tracking-wide animate-in fade-in duration-200">
               <Check className="w-3 h-3" /> Saved
@@ -429,23 +500,23 @@ function SongDetail({
           </p>
         )}
 
-        {/* ── Streaming links ── */}
-        {links && (
+        {/* ── External streaming links ── */}
+        {rawLinks && (
           <div className="flex flex-wrap gap-2">
-            {links.spotify && (
-              <a href={links.spotify} target="_blank" rel="noopener noreferrer"
+            {rawLinks.spotify && (
+              <a href={rawLinks.spotify} target="_blank" rel="noopener noreferrer"
                 className="flex items-center gap-1.5 text-xs bg-[#1DB954]/15 text-[#1DB954] border border-[#1DB954]/30 px-3 py-1.5 rounded-full hover:bg-[#1DB954]/25 transition-colors">
                 <Music className="w-3 h-3" /> Spotify
               </a>
             )}
-            {links.youtube && (
-              <a href={links.youtube} target="_blank" rel="noopener noreferrer"
+            {rawLinks.youtube && (
+              <a href={rawLinks.youtube} target="_blank" rel="noopener noreferrer"
                 className="flex items-center gap-1.5 text-xs bg-red-500/10 text-red-400 border border-red-500/20 px-3 py-1.5 rounded-full hover:bg-red-500/20 transition-colors">
                 <Radio className="w-3 h-3" /> YouTube
               </a>
             )}
-            {links.appleMusic && (
-              <a href={links.appleMusic} target="_blank" rel="noopener noreferrer"
+            {rawLinks.appleMusic && (
+              <a href={rawLinks.appleMusic} target="_blank" rel="noopener noreferrer"
                 className="flex items-center gap-1.5 text-xs bg-pink-500/10 text-pink-400 border border-pink-500/20 px-3 py-1.5 rounded-full hover:bg-pink-500/20 transition-colors">
                 <Music className="w-3 h-3" /> Apple Music
               </a>

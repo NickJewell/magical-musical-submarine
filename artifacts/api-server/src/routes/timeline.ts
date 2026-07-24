@@ -116,8 +116,11 @@ router.get("/timeline", async (req, res) => {
         const rating = latestRating.get(rec.id);
         return {
           recId:         rec.id,
+          mbid:          rec.mbid,
+          type:          rec.type,
           title:         rec.title,
           artist:        rec.artist,
+          artworkUrl:    rec.artworkUrl ?? null,
           score:         rating?.score ?? null,
           listenState:   rating?.listenState ?? null,
           reviewText:    rating?.reviewText ?? null,
@@ -129,12 +132,16 @@ router.get("/timeline", async (req, res) => {
 
       const wellTrodden = ctrlRec
         ? {
-            recId:    ctrlRec.id,
-            title:    ctrlRec.title,
-            artist:   ctrlRec.artist,
-            score:    latestRating.get(ctrlRec.id)?.score ?? null,
-            listenState: latestRating.get(ctrlRec.id)?.listenState ?? null,
-            linksJson:   ctrlRec.linksJson ?? null,
+            recId:        ctrlRec.id,
+            mbid:         ctrlRec.mbid,
+            type:         ctrlRec.type,
+            title:        ctrlRec.title,
+            artist:       ctrlRec.artist,
+            artworkUrl:   ctrlRec.artworkUrl ?? null,
+            score:        latestRating.get(ctrlRec.id)?.score ?? null,
+            listenState:  latestRating.get(ctrlRec.id)?.listenState ?? null,
+            reviewText:   latestRating.get(ctrlRec.id)?.reviewText ?? null,
+            linksJson:    ctrlRec.linksJson ?? null,
             narrativeText: ctrlRec.narrativeText ?? null,
           }
         : null;

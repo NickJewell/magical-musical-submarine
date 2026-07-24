@@ -63,6 +63,7 @@ export default function OnboardingScreen() {
       type: 'track',
     }),
     enabled: debouncedQuery.length >= 2 && !!userId,
+    retry: false,
   });
 
   const nextPair = useQuery({
@@ -178,7 +179,13 @@ export default function OnboardingScreen() {
           />
         </View>
 
-        {searchResults.isFetching ? (
+        {searchResults.isError ? (
+          <View style={styles.center}>
+            <Text style={{ color: colors.destructive ?? '#ef4444', fontSize: 14, textAlign: 'center' }}>
+              Search timed out, please try again.
+            </Text>
+          </View>
+        ) : searchResults.isFetching ? (
           <View style={styles.center}>
             <ActivityIndicator color={colors.primary} />
           </View>

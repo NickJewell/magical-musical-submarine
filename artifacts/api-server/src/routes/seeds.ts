@@ -15,8 +15,12 @@ router.get("/search", async (req, res): Promise<void> => {
   }
   const { q, type = "track", page = 1 } = parsed.data;
 
-  const results = await searchMusicBrainz(q, type as "track" | "album" | "artist", page);
-  res.json(results);
+  try {
+    const results = await searchMusicBrainz(q, type as "track" | "album" | "artist", page);
+    res.json(results);
+  } catch (err) {
+    res.status(503).json({ error: "Search timed out, please try again" });
+  }
 });
 
 // POST /seed — add a seed

@@ -262,9 +262,9 @@ function Phase1Seeding({ userId, onComplete }: { userId: number, onComplete: () 
     return () => clearTimeout(timer);
   }, [query]);
 
-  const { data: pageResults, isLoading: isSearching, isFetching } = useSearchMusic(
+  const { data: pageResults, isLoading: isSearching, isFetching, isError: isSearchError } = useSearchMusic(
     { userId, q: debouncedQuery, type: 'track', page },
-    { query: { enabled: debouncedQuery.length > 2, queryKey: getSearchMusicQueryKey({ userId, q: debouncedQuery, type: 'track', page }) } }
+    { query: { enabled: debouncedQuery.length > 2, queryKey: getSearchMusicQueryKey({ userId, q: debouncedQuery, type: 'track', page }), retry: false } }
   );
 
   // Append new page results; replace on page 1 (fresh query)
@@ -335,8 +335,15 @@ function Phase1Seeding({ userId, onComplete }: { userId: number, onComplete: () 
         </div>
 
         <div className="flex-1 overflow-y-auto min-h-[200px] space-y-1.5">
+          {/* Search error */}
+          {isSearchError && (
+            <div className="text-center p-4 text-sm text-destructive">
+              Search timed out, please try again.
+            </div>
+          )}
+
           {/* Initial load spinner */}
-          {isSearching && allResults.length === 0 && (
+          {!isSearchError && isSearching && allResults.length === 0 && (
             <div className="text-center p-4">
               <Loader2 className="w-5 h-5 animate-spin mx-auto text-primary" />
             </div>

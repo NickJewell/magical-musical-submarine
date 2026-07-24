@@ -73,6 +73,31 @@ router.get("/dive", async (req, res): Promise<void> => {
   res.json(result);
 });
 
+// PATCH /dive/:id — rename a dive
+router.patch("/dive/:id", async (req, res): Promise<void> => {
+  const diveId = parseInt(req.params.id, 10);
+  if (isNaN(diveId)) { res.status(400).json({ error: "Invalid dive id" }); return; }
+
+  const { userId, name } = req.body as { userId?: unknown; name?: unknown };
+  if (typeof userId !== "number" || typeof name !== "string" || !name.trim()) {
+    res.status(400).json({ error: "userId (number) and name (non-empty string) are required" });
+    return;
+  }
+
+  const [dive] = await db.select().from(divesTable).where(eq(divesTable.id, diveId)).limit(1);
+  if (!dive) { res.status(404).json({ error: "Dive not found" }); return; }
+  if (dive.userId !== userId) { res.status(403).json({ error: "Access denied" }); return; }
+
+  const [updated] = await db
+    .update(divesTable)
+    .set({ name: name.trim() })
+    .where(eq(divesTable.id, diveId))
+    .returning();
+
+  const [sc] = await db.select({ count: count() }).from(diveStepsTable).where(eq(diveStepsTable.diveId, diveId));
+  res.json(formatDive(updated, Number(sc.count)));
+});
+
 // GET /dive/detail — dive detail (query params: diveId + userId, both required)
 // NOTE: Must be registered BEFORE any wildcard /dive/:id routes to avoid shadowing.
 router.get("/dive/detail", async (req, res): Promise<void> => {

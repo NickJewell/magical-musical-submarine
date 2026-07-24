@@ -1,0 +1,108 @@
+# Trails — Canon Duels (canonical song face-offs)
+
+*Standalone feature spec extending the main build spec (`REPLIT-BUILD-SPEC.md`). Adds an alternative onboarding/seeding prompt type: two canonical "must-hear" songs presented head-to-head. Numbered §17 to continue the main spec. Depends on the resolver, `resolved_entities`, `taste_events`, and the onboarding flow from the main spec.*
+
+---
+
+## 17. Canon Duels
+
+### Purpose
+During onboarding (and optionally later), **randomly substitute** some of the psychographic seed prompts (§4.4 / main-spec §9) with a **head-to-head between two canonical songs** — "which pulls you harder?" — drawn from a broad, era/genre-spanning canon of widely-acclaimed tracks (in the spirit of *1001 Songs You Must Hear Before You Die* / *1000 Recordings to Hear Before You Die*, but sourced cleanly — see §17.3).
+
+Why it earns its place:
+- **Prompts in a different direction.** The psychographic questions surface songs *already in the user's life*; duels inject the **canon**, pulling the taste graph toward territory the user didn't think to seed.
+- **Attacks the discovery problem.** The prototype's headline weakness was that the app *recognizes* taste better than it *expands* it. Canon duels are a discovery engine bolted onto onboarding: songs the user reacts to but doesn't know become high-quality discovery candidates (§17.6).
+- **Lower-effort, higher-serendipity** than composing an answer to "a song tied to a place" — one tap, and it works even when the user is drawing a blank.
+
+### 17.1 Relationship to onboarding
+Canon duels are a **prompt type**, interleaved with psychographic prompts during seeding:
+- Config `CANON_DUEL_RATIO` (default **0.3**) = share of onboarding prompts served as duels vs psychographic questions. Selection is random per prompt, so the mix feels varied.
+- They can also be offered **any time** post-onboarding as a lightweight "tune my taste" action, and as a **cold-start fallback** when a user stalls on the open prompts.
+- Duels never *replace* the discriminative pairwise stage (main-spec §9 / spec §4.4.2) — that stage still uses the user's **own seeds** to split hypotheses. Duels feed *seeding*; the pairwise stage feeds *ranking*.
+
+### 17.2 What a duel is
+Two verified canon tracks, **A** and **B**, shown as competing cards (title — artist — year, artwork, a "▶ preview/open" deep link). The user answers on one axis, plus a familiarity signal:
+- **Preference axis (one tap):** `strongly A · A · tie/love both · B · strongly B` → stored as −2…+2 (0 = tie).
+- **Familiarity (per song, or a combined control):** did they **know** each song? Options resolve to: *knew both · knew A only · knew B only · new to both*. This is essential — a preference between two unknown songs means something different from a preference between two you love.
+
+### 17.3 The canon pool (sourcing — read this before building)
+**Do not hard-code a copyrighted book's verbatim list into the hosted app.** The curated selection is the protected work. Instead, build a `canon_tracks` pool of **MBID-verified** tracks via one or more clean sources, defaulting to the first:
+
+1. **Generate-and-verify (default).** An offline seeding job asks the LLM for widely-acclaimed / "must-hear" tracks spread across eras, genres, and regions, then runs every candidate through the **MusicBrainz resolver** (main-spec §5.1). Only verified entities enter the pool. Target a few hundred to ~2000 tracks with good spread. This is the app's own selection — not the book's — and stays MBID-keyed and swappable.
+2. **Acclaim-weighted (enrichment).** Weight/prioritize pool entries and rank canonicity using **open signals** — Last.fm listener/playcount and top-tags, ListenBrainz popularity — so "canonical" reflects real corpus acclaim, not just the model's guess.
+3. **Import-your-own (personal, optional, off by default).** Allow the owner to import a list they own (e.g. from their own copy of a book) as a CSV of `artist,title` → resolve to MBIDs. Gate this as a **personal/admin** import, not a shipped dataset, and keep it out of the default multi-user product to respect the source's copyright.
+
+Each pool track stores tags for pairing: `era` (decade), `primary_genre`, `mood/energy` (from tags), `region`, and a `canon_weight` (0–1, from acclaim signals).
+
+### 17.4 Pair selection strategies
+Pick the pair with a strategy (config `CANON_DUEL_STRATEGY`, default `contrastive`):
+- **`random`** — pure serendipity; two random pool tracks (optionally floor by `canon_weight`).
+- **`contrastive`** (default) — two tracks that **differ on one salient axis** (genre, era, energy, or vocal/instrumental) so the answer is informative — the same "make the choice discriminating" instinct as the pairwise stage, applied to the canon.
+- **`coverage-adaptive`** — bias toward regions of the canon the user's current graph **hasn't touched** (e.g. seeds are all guitar-pop → inject a jazz-vs-electronic duel). This is the literal "prompt me in a different direction" mode; it maximizes graph expansion.
+
+Avoid re-showing the same track too often within a session; never pair a track against itself or against one already seeded.
+
+### 17.5 How outcomes feed the taste graph
+Every duel result is an append-only `taste_event` (`kind='canon_duel'`) with payload `{ a_mbid, b_mbid, result:-2..2, knew_a:bool, knew_b:bool, strategy }`. Downstream effects:
+- **Preference signal:** the winner's tags/genres/era are weighted *toward* the portrait, the loser's *away* — same shape as pairwise, but over canon attributes. This nudges the portrait even from songs the user just met.
+- **Seed promotion:** if the user **knew and (strongly) preferred** a track, promote it to a seed — log an additional `kind='seed'` event with `source='canon_duel'` and no mood prompt. (Known + loved = a legitimate seed the user simply didn't think to name.)
+- **Discovery reservoir (the payoff):** a track the user **didn't know** but leaned toward is stored as a **discovery candidate** (flag on the event / a lightweight `discovery_candidates` view). Later dives can surface it as an LLM rec with high novelty confidence — closing the loop on the discovery-vs-resonance gap.
+- **Anti-seed signal:** "new to both, strongly prefer A" still teaches attribute preference; "knew both, tie" is weak signal — weight accordingly.
+
+### 17.6 Anti-hallucination
+Canon tracks are **MB-verified pool entries** — same gate as everything else. Titles/artists/years shown come from `resolved_entities`, never model free-text. Preview/open links use the existing Odesli + Spotify-search fallback (main-spec §5.4).
+
+### 17.7 Data model additions
+```sql
+-- The canon pool (MBID-verified must-hear tracks).
+CREATE TABLE canon_tracks (
+  mbid          TEXT PRIMARY KEY REFERENCES resolved_entities(mbid),
+  era           INT,            -- decade, e.g. 1970
+  primary_genre TEXT,
+  mood_tags     JSONB,          -- from Last.fm/MB tags
+  region        TEXT,
+  canon_weight  NUMERIC(3,2),   -- 0.00–1.00 acclaim weight
+  source        TEXT NOT NULL DEFAULT 'generated', -- generated | imported
+  added_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Duel outcomes live in taste_events (kind='canon_duel'); no new table needed.
+-- Discovery candidates can be a view over canon_duel events where the user
+-- did NOT know the preferred track and hasn't since been recommended it.
+```
+
+### 17.8 API additions (main spec §8)
+| Method & path | Purpose |
+|---|---|
+| `GET /api/duel/next?strategy=` | return a verified A/B pair from the canon pool (per strategy; excludes already-seeded/recently-shown) |
+| `POST /api/duel` | `{ aMbid, bMbid, result:-2..2, knewA, knewB, strategy }` → log `canon_duel`, apply promotions/reservoir |
+| *(admin/offline)* `POST /api/canon/seed` | build/refresh the canon pool (generate-and-verify + acclaim weighting) |
+| *(admin, optional)* `POST /api/canon/import` | import an owner-supplied `artist,title` CSV → resolve → pool |
+
+The onboarding "next prompt" endpoint chooses per `CANON_DUEL_RATIO` whether to return a psychographic prompt or a duel.
+
+### 17.9 UI
+- **Duel card:** two side-by-side (mobile: stacked) song cards — artwork, title — artist — year, a small **▶ preview/open** link. Between/under them, the 5-point axis control (**strongly A · A · love both/tie · B · strongly B**) as a single tap-row.
+- **Familiarity:** a subtle per-card "new to me" toggle (default: known). Or a one-tap chip row after choosing: *knew both · knew one · new to both*.
+- **"Skip — don't know these"** always available → logs `new to both` and serves another pair (still useful signal + a discovery seed).
+- Feels like the psychographic prompts' sibling: same rhythm, one tap, no typing.
+
+### 17.10 Config
+```
+CANON_DUEL_RATIO=0.3            # share of onboarding prompts served as duels
+CANON_DUEL_STRATEGY=contrastive # random | contrastive | coverage-adaptive
+CANON_POOL_TARGET=1000          # target pool size for the seeding job
+```
+
+### 17.11 Out of scope / legal
+- **Do not ship a third-party book's verbatim curated list** in the multi-user product; the selection is copyrighted. Use generate-and-verify (§17.3.1); keep import-your-own (§17.3.3) as a personal/admin feature, clearly caveated.
+- No audio hosting — previews are deep links only.
+- Duels don't drive the discriminative pairwise ranking stage (that stays on the user's own seeds).
+
+### 17.12 Acceptance criteria
+- During onboarding, ~`CANON_DUEL_RATIO` of prompts are canon duels; the rest psychographic; the mix is random and feels varied.
+- Every duel shows two **MB-verified** tracks with working preview/open links; nothing unverified is ever displayed.
+- A result logs a `canon_duel` event; a known+preferred track is promoted to a seed; an unknown+preferred track enters the discovery reservoir.
+- `coverage-adaptive` demonstrably favors genres/eras absent from the user's current seeds.
+- The canon pool is built by generate-and-verify (no hard-coded copyrighted list in the shipped product).
+- Fully one-tap on a phone; "skip — don't know these" always works.

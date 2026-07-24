@@ -8,6 +8,8 @@ import {
 import { useLocalUser } from '@/lib/useLocalUser';
 import { Button } from '@/components/ui/button';
 import { Loader2, Play, Star, Anchor } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
+import { InlineDiveRename } from '@/components/InlineDiveRename';
 import { SiSpotify, SiYoutube } from 'react-icons/si';
 
 export default function QueuePage() {
@@ -27,6 +29,8 @@ export default function QueuePage() {
 }
 
 function QueueContent({ userId, diveId, onNavigate }: { userId: number, diveId: number, onNavigate: (p: string) => void }) {
+  const queryClient = useQueryClient();
+
   // Generated hook sends both diveId and userId as required query params (ownership-safe)
   const { data: dive } = useLoadDive(
     { diveId, userId },
@@ -108,6 +112,20 @@ function QueueContent({ userId, diveId, onNavigate }: { userId: number, diveId: 
   return (
     <div className="p-6 pt-12 max-w-md mx-auto space-y-12 pb-32 animate-in fade-in duration-1000">
       <div className="space-y-2 text-center">
+        <div className="flex justify-center">
+          <InlineDiveRename
+            diveId={diveId}
+            userId={userId}
+            name={dive?.name ?? 'This dive'}
+            variant="label"
+            onRenamed={(newName) =>
+              queryClient.setQueryData(
+                getLoadDiveQueryKey({ diveId, userId }),
+                (old: typeof dive) => old ? { ...old, name: newName } : old,
+              )
+            }
+          />
+        </div>
         <h1 className="text-xl font-serif text-primary-foreground">Today's Findings</h1>
         <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest">
           {llmRecs.length} {llmRecs.length === 1 ? 'discovery' : 'discoveries'} waiting

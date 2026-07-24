@@ -6,11 +6,13 @@ import {
   useGetState, useCreateDive, useGetTastePair,
   useGetPortrait, useUpdatePortrait, useGeneratePortrait,
   getGetStateQueryKey, getGetPortraitQueryKey,
+  type AppState,
 } from '@workspace/api-client-react';
 import { useLocalUser } from '@/lib/useLocalUser';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Loader2, RefreshCw, Check, Pencil } from 'lucide-react';
+import { InlineDiveRename } from '@/components/InlineDiveRename';
 import { PairwiseSlider } from '@/components/PairwiseSlider';
 import { useToast } from '@/hooks/use-toast';
 
@@ -241,7 +243,17 @@ function HomeContent({ userId, onNavigate }: { userId: number; onNavigate: (path
                 <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
                 Active Dive
               </h3>
-              <p className="text-lg font-medium">{state.activeDiveName}</p>
+              <InlineDiveRename
+                diveId={state.activeDiveId}
+                userId={userId}
+                name={state.activeDiveName ?? 'Untitled dive'}
+                onRenamed={(newName) =>
+                  queryClient.setQueryData<AppState>(
+                    getGetStateQueryKey({ userId }),
+                    (old) => old ? { ...old, activeDiveName: newName } : old,
+                  )
+                }
+              />
               <Button
                 onClick={() => onNavigate(`/dive/${state.activeDiveId}`)}
                 className="w-full bg-primary text-primary-foreground hover:bg-primary/90 rounded-full h-12 mt-4"

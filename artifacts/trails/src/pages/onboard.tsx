@@ -292,10 +292,12 @@ function Phase1Seeding({ userId, onComplete }: { userId: number, onComplete: () 
   }, [pageResults]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const addSeed = useAddSeed();
+  const [addSeedError, setAddSeedError] = useState<string | null>(null);
 
   const currentEntry = sequence[seqIdx % sequence.length];
 
   const handleAddSeed = (mbid: string, title: string, artist: string, year: number | null) => {
+    setAddSeedError(null);
     const prompt = currentEntry.type === 'seed' ? currentEntry.prompt : undefined;
     addSeed.mutate({
       data: { userId, mbid, type: 'track', title, artist, year, prompt }
@@ -306,7 +308,10 @@ function Phase1Seeding({ userId, onComplete }: { userId: number, onComplete: () 
         setAllResults([]);
         setPage(1);
         setSeqIdx((i) => i + 1);
-      }
+      },
+      onError: () => {
+        setAddSeedError("Couldn't save track, please try again");
+      },
     });
   };
 
@@ -363,6 +368,13 @@ function Phase1Seeding({ userId, onComplete }: { userId: number, onComplete: () 
               className="pl-12 h-14 rounded-full bg-secondary/20 border-primary/20 focus-visible:border-primary text-lg"
             />
           </div>
+
+          {/* Add-seed error */}
+          {addSeedError && (
+            <div className="text-center py-2 px-4 text-sm text-destructive">
+              {addSeedError}
+            </div>
+          )}
 
           <div className="flex-1 overflow-y-auto min-h-[200px] space-y-1.5">
             {/* Search error */}

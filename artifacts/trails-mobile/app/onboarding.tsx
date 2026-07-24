@@ -46,6 +46,7 @@ export default function OnboardingScreen() {
   const addSeed = useAddSeed();
   const submitPair = useSubmitPair();
   const generatePortrait = useGeneratePortrait();
+  const [addSeedError, setAddSeedError] = useState<string | null>(null);
 
   // Debounce search
   const [searchTimer, setSearchTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
@@ -73,6 +74,7 @@ export default function OnboardingScreen() {
 
   const handleAddSeed = async (result: SearchResult) => {
     if (!userId || addedMbids.has(result.mbid)) return;
+    setAddSeedError(null);
     try {
       await addSeed.mutateAsync({
         data: {
@@ -89,7 +91,7 @@ export default function OnboardingScreen() {
       setSeedCount(next);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch {
-      // ignore
+      setAddSeedError("Couldn't save track, please try again");
     }
   };
 
@@ -178,6 +180,14 @@ export default function OnboardingScreen() {
             ]}
           />
         </View>
+
+        {addSeedError && (
+          <View style={{ paddingHorizontal: 24, paddingBottom: 4 }}>
+            <Text style={{ color: colors.destructive ?? '#ef4444', fontSize: 14, textAlign: 'center' }}>
+              {addSeedError}
+            </Text>
+          </View>
+        )}
 
         {searchResults.isError ? (
           <View style={styles.center}>

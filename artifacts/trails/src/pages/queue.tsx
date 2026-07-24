@@ -10,6 +10,7 @@ import { useLocalUser } from '@/lib/useLocalUser';
 import { Button } from '@/components/ui/button';
 import { Loader2, Play, Star, Anchor } from 'lucide-react';
 import { InlineDiveRename } from '@/components/InlineDiveRename';
+import { InlinePlayer, type ResolvedLinks } from '@/components/InlinePlayer';
 import { SiSpotify, SiYoutube } from 'react-icons/si';
 
 export default function QueuePage() {
@@ -41,6 +42,7 @@ function QueueContent({ userId, diveId, onNavigate }: { userId: number, diveId: 
 
   const [hasStartedFetch, setHasStartedFetch] = useState(false);
   const [ratedCount, setRatedCount] = useState(0);
+  const [activeRecId, setActiveRecId] = useState<number | null>(null);
   const getRecommendations = useGetRecommendations();
 
   // Invalidate portrait query 6 s after every 3rd rating — gives server time to regenerate
@@ -161,7 +163,7 @@ function QueueContent({ userId, diveId, onNavigate }: { userId: number, diveId: 
       ) : (
         <div className="space-y-8">
           {llmRecs.map(rec => (
-            <RecCard key={rec.id} rec={rec} userId={userId} onRated={() => setRatedCount(c => c + 1)} />
+            <RecCard key={rec.id} rec={rec} userId={userId} onRated={() => setRatedCount(c => c + 1)} activeRecId={activeRecId} onActivate={setActiveRecId} />
           ))}
         </div>
       )}
@@ -174,7 +176,7 @@ function QueueContent({ userId, diveId, onNavigate }: { userId: number, diveId: 
             <div className="h-px bg-border flex-1" />
           </div>
           {controlRecs.map(rec => (
-            <RecCard key={rec.id} rec={rec} userId={userId} onRated={() => setRatedCount(c => c + 1)} />
+            <RecCard key={rec.id} rec={rec} userId={userId} onRated={() => setRatedCount(c => c + 1)} activeRecId={activeRecId} onActivate={setActiveRecId} />
           ))}
         </div>
       )}
@@ -192,7 +194,10 @@ function QueueContent({ userId, diveId, onNavigate }: { userId: number, diveId: 
 
 const REVIEW_MAX = 500;
 
-function RecCard({ rec, userId, onRated }: { rec: Recommendation, userId: number, onRated: () => void }) {
+function RecCard({ rec, userId, onRated, activeRecId, onActivate }: {
+  rec: Recommendation, userId: number, onRated: () => void,
+  activeRecId: number | null, onActivate: (id: number | null) => void,
+}) {
   const [links, setLinks] = useState(rec.linksJson);
   const [shouldFetchLinks, setShouldFetchLinks] = useState(false);
   
@@ -253,27 +258,39 @@ function RecCard({ rec, userId, onRated }: { rec: Recommendation, userId: number
         </p>
       )}
 
-      <div className="pt-2">
-        {!links ? (
-          <Button 
-            onClick={handleResolveLinks} 
-            variant="outline" 
-            className="rounded-full h-10 border-primary/30 text-primary hover:bg-primary/10"
-            disabled={isResolvingLinks}
-          >
-            {isResolvingLinks ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Play className="w-4 h-4 mr-2" />}
-            Find streams
-          </Button>
-        ) : (
-          <div className="flex gap-3">
+      <div className="pt-2 space-y-3">
+        {/* Inline player — lazy: nothing loads until ▶ is tapped */}
+        <InlinePlayer
+          recId={rec.id}
+          links={links as ResolvedLinks | null}
+          isLoadingLinks={isResolvingLinks}
+          onNeedLinks={handleResolveLinks}
+          activeRecId={activeRecId}
+          onActivate={onActivate}
+        />
+
+        {/* Deep-link buttons — "open in app" for real listening / saving */}
+        {links && (links.spotify || links.youtube) && (
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-mono text-muted-foreground/35 uppercase tracking-widest">open in</span>
             {links.spotify && (
-              <a href={links.spotify} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center w-12 h-12 rounded-full bg-[#1DB954]/10 text-[#1DB954] hover:bg-[#1DB954]/20 transition-colors">
-                <SiSpotify className="w-5 h-5" />
+              <a
+                href={links.spotify}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 px-2.5 py-1 rounded-full border border-[#1DB954]/25 bg-[#1DB954]/8 text-[#1DB954]/70 hover:bg-[#1DB954]/15 hover:text-[#1DB954] transition-colors text-[10px] font-mono"
+              >
+                <SiSpotify className="w-3 h-3" /> Spotify
               </a>
             )}
             {links.youtube && (
-              <a href={links.youtube} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center w-12 h-12 rounded-full bg-[#FF0000]/10 text-[#FF0000] hover:bg-[#FF0000]/20 transition-colors">
-                <SiYoutube className="w-5 h-5" />
+              <a
+                href={links.youtube}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 px-2.5 py-1 rounded-full border border-[#FF0000]/20 bg-[#FF0000]/8 text-[#FF0000]/70 hover:bg-[#FF0000]/15 hover:text-[#FF0000] transition-colors text-[10px] font-mono"
+              >
+                <SiYoutube className="w-3.5 h-3.5" /> YouTube
               </a>
             )}
           </div>

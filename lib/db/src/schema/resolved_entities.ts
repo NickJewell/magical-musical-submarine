@@ -9,6 +9,7 @@ export const resolvedEntitiesTable = pgTable("resolved_entities", {
   relationshipsJson: jsonb("relationships_json"),
   resolvedAt: timestamp("resolved_at", { withTimezone: true }).notNull().defaultNow(),
   spotifyUri: text("spotify_uri"),
+  youtubeId: text("youtube_id"),
 });
 
 export type ResolvedEntity = typeof resolvedEntitiesTable.$inferSelect;

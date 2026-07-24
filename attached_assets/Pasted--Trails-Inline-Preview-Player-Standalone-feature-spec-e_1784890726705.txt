@@ -1,0 +1,82 @@
+# Trails — Inline Preview Player
+
+*Standalone feature spec extending the main build spec (`REPLIT-BUILD-SPEC.md`). Adds an in-card audio/video player to recommendation cards, with **Spotify as the default** and YouTube as the alternative/fallback. Numbered §18. Depends on the links module (main-spec §5.4) and the `resolved_entities` cache.*
+
+---
+
+## 18. Inline preview player
+
+### Purpose
+Let the user **play a track without leaving the recommendation card** — a quick taste while reading the narrative — with both Spotify and YouTube available and **Spotify shown by default**. The existing "open in app" deep-link buttons stay (an embed is for a taste; the buttons are for real listening / saving).
+
+### Playback reality (by design)
+- **Spotify embed (default):** full-track playback for a **Premium** listener logged into Spotify in that browser (the owner's case ✔); a **30-second preview** for free/logged-out listeners. No OAuth, no API key.
+- **YouTube embed (alternative/fallback):** **full-length** playback for anyone, no login — useful when a viewer isn't Premium, or when Spotify has no match. Occasionally a video is embed-blocked by its uploader → fall back to the deep-link.
+
+Full-track-for-everyone-in-Spotify would require the Web Playback SDK (Premium + `streaming` OAuth) — explicitly **out of scope**; the embed covers the owner's Premium case already.
+
+### 18.1 Behaviour
+- Each rec card renders **one active inline player**, defaulting to **Spotify**, with a small **toggle** to switch to YouTube (per-card; remembered for the session via a `preferredPlayer` setting, default `spotify`).
+- The player is **lazy-mounted**: nothing loads until the user taps ▶ / expands the player, so a queue of 3 cards doesn't spin up 3 iframes. Only one player plays at a time (mounting/expanding one pauses others — reuse a single "active card" state).
+- If the default provider has no resolvable ID for a track, silently fall back to the other provider; if neither resolves, show only the deep-link buttons (no empty player).
+
+### 18.2 ID resolution (reuse §16's ladder)
+To embed, you need a **Spotify track ID** and/or a **YouTube video ID**, not the MBID. For each rec, resolve once and cache:
+1. **Spotify ID** — from the Odesli response you already fetch (`linksByPlatform.spotify.url` = `https://open.spotify.com/track/{id}` → parse `{id}`), else **Spotify Search** on the *verified* MB `artist`+`title`. Cache to `resolved_entities.spotify_uri`.
+2. **YouTube ID** — from Odesli (`linksByPlatform.youtube.url` → parse `v={id}`), else a YouTube search-URL fallback (deep-link only, not embeddable). Cache to `resolved_entities.youtube_id`.
+- **Do not** build a hand-rolled `<audio>` player from Spotify `preview_url` — that field was removed in the 2024 API deprecations. The embed iframe is the supported preview surface.
+
+### 18.3 Embeds
+**Spotify (default)** — full player for Premium, 30s preview otherwise:
+```html
+<iframe style="border-radius:12px" width="100%" height="152"
+  src="https://open.spotify.com/embed/track/{SPOTIFY_TRACK_ID}?theme=0"
+  frameborder="0" loading="lazy"
+  allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture">
+</iframe>
+```
+Use `height="80"` for the compact bar, `152` (default) or `352` (with artwork) for the fuller card. Optional: control play/pause from your own UI via the **Spotify iframe API** (`https://open.spotify.com/embed/iframe-api/v1` → `IFrameAPI.createController(el, {uri:'spotify:track:{id}'}, cb)` → `controller.togglePlay()`), still no auth.
+
+**YouTube (alternative/fallback)** — full playback, no login:
+```html
+<iframe width="100%" height="152"
+  src="https://www.youtube.com/embed/{YT_VIDEO_ID}"
+  frameborder="0" loading="lazy"
+  allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen>
+</iframe>
+```
+
+### 18.4 Card layout (updates the main-spec §9 rec card)
+Order within a rec card:
+1. Title — artist — year (unchanged).
+2. Narrative (unchanged).
+3. **Inline player** (collapsed ▶ affordance by default; expands on tap). A tiny **Spotify / YouTube** toggle sits on the player.
+4. **Deep-link buttons** (Spotify + YouTube icons) — kept, labelled as "open in app" (real listen / add to playlist).
+
+Keep it calm: the player is secondary to the narrative, not a giant block above it.
+
+### 18.5 Schema / API
+- Columns (shared with §16): `resolved_entities.spotify_uri`, and add `resolved_entities.youtube_id TEXT`.
+- Extend `GET /api/links/:mbid?type=` to also return parsed IDs:
+  `{ pageUrl, direct{...}, search{...}, spotifyTrackId, youtubeVideoId }` — so the client can embed without re-parsing. Resolve+cache on first request.
+
+### 18.6 Config
+```
+INLINE_PLAYER_DEFAULT=spotify     # spotify | youtube
+INLINE_PLAYER_ENABLED=true        # master toggle for the inline player
+```
+
+### 18.7 Edge cases
+- **No Spotify match** → auto-use YouTube; if the default was Spotify, switch silently and note nothing.
+- **No match on either** → hide the player, keep deep-link buttons.
+- **YouTube embed blocked** → catch the iframe error state → offer the YouTube deep-link instead.
+- **Multiple cards** → only one player mounted/playing at a time.
+- **Album recs** → embed the designated `entry_track_mbid`'s track (consistent with the track-default rule).
+
+### 18.8 Acceptance criteria
+- Rec cards show a **Spotify** inline player by default; a per-card toggle switches to **YouTube**.
+- As a Premium logged-in user, the Spotify player plays the **full track** inline; the YouTube player plays full-length for anyone.
+- Players are **lazy-mounted** (no iframe until tapped) and only one plays at a time.
+- Track/video IDs are resolved from Odesli/Search and **cached** on `resolved_entities`; no `preview_url` dependency.
+- If a provider can't resolve a track, the card falls back gracefully (other provider, else deep-links only).
+- The existing Spotify/YouTube deep-link buttons remain for "open in app."

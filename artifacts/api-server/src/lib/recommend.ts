@@ -99,16 +99,8 @@ export async function recommend(opts: { stepId: number; userId: number }) {
     likelyKnown: string;
   }> = [];
 
-  const candidates = await propose({
-    portraitText,
-    recap,
-    directionLabel,
-    directionRationale,
-    similarArtists: similarArtistNames,
-    count: MAX_CANDIDATES,
-  });
-
-  const verified: Array<{
+  // ---- Propose → Resolve loop; retries once with broader prompt if all candidates fail ----
+  type VerifiedRec = {
     mbid: string;
     type: string;
     title: string;
@@ -116,24 +108,50 @@ export async function recommend(opts: { stepId: number; userId: number }) {
     year: number | null;
     relationships: unknown;
     likelyKnown: string;
-  }> = [];
+  };
 
-  for (const c of candidates) {
-    if (verified.length >= TARGET_RECS) break;
-    const resolved = await resolve(c);
-    if (!resolved) {
-      logger.info({ candidate: c }, "Candidate rejected by MusicBrainz gate");
-      continue;
-    }
-    verified.push({
-      mbid: resolved.mbid,
-      type: resolved.type === "recording" ? "track" : "album",
-      title: resolved.title,
-      artist: resolved.artist,
-      year: resolved.year,
-      relationships: resolved.relationships,
-      likelyKnown: c.likely_known,
+  async function runProposalRound(broader: boolean): Promise<VerifiedRec[]> {
+    const candidates = await propose({
+      portraitText,
+      recap,
+      directionLabel,
+      directionRationale,
+      similarArtists: similarArtistNames,
+      count: MAX_CANDIDATES,
+      broader,
     });
+
+    const roundVerified: VerifiedRec[] = [];
+    for (const c of candidates) {
+      if (roundVerified.length >= TARGET_RECS) break;
+      const resolved = await resolve(c);
+      if (!resolved) {
+        // Similarity scores are logged inside musicbrainz.ts with candidate + scores
+        continue;
+      }
+      roundVerified.push({
+        mbid: resolved.mbid,
+        type: resolved.type === "recording" ? "track" : "album",
+        title: resolved.title,
+        artist: resolved.artist,
+        year: resolved.year,
+        relationships: resolved.relationships,
+        likelyKnown: c.likely_known,
+      });
+    }
+    return roundVerified;
+  }
+
+  let verified = await runProposalRound(false);
+
+  if (verified.length === 0) {
+    logger.warn({ stepId }, "No LLM candidates passed MusicBrainz gate on first round — retrying with broader prompt");
+    verified = await runProposalRound(true);
+    if (verified.length === 0) {
+      logger.warn({ stepId }, "No LLM candidates passed MusicBrainz gate after broader retry — step will have only control-arm rec");
+    } else {
+      logger.info({ stepId, count: verified.length }, "Broader retry succeeded");
+    }
   }
 
   if (verified.length > 0) {
@@ -163,8 +181,6 @@ export async function recommend(opts: { stepId: number; userId: number }) {
       })
     );
     llmRecs.push(...narrated);
-  } else {
-    logger.warn({ stepId }, "No LLM candidates passed MusicBrainz gate — step will have only control-arm rec");
   }
 
   // ---- Control arm: ALWAYS inserted regardless of LLM outcome ----

@@ -7,7 +7,7 @@ import {
 } from '@workspace/api-client-react';
 import { useLocalUser } from '@/lib/useLocalUser';
 import { Button } from '@/components/ui/button';
-import { Loader2, Play, Star } from 'lucide-react';
+import { Loader2, Play, Star, Anchor } from 'lucide-react';
 import { SiSpotify, SiYoutube } from 'react-icons/si';
 
 export default function QueuePage() {
@@ -85,6 +85,21 @@ function QueueContent({ userId, diveId, onNavigate }: { userId: number, diveId: 
     );
   }
 
+  if (getRecommendations.isError) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center min-h-[100dvh] space-y-6 px-8 text-center">
+        <Anchor className="w-10 h-10 text-muted-foreground/40" />
+        <div className="space-y-2">
+          <h2 className="text-xl font-serif text-primary-foreground">Something went wrong</h2>
+          <p className="text-sm text-muted-foreground">We couldn't load recommendations for this dive.</p>
+        </div>
+        <Button variant="outline" className="rounded-full" onClick={() => onNavigate(`/dive/${diveId}`)}>
+          Go back
+        </Button>
+      </div>
+    );
+  }
+
   const recs = getRecommendations.data;
   const llmRecs = recs.filter(r => r.arm === 'llm');
   const controlRecs = recs.filter(r => r.arm === 'well_trodden');
@@ -97,15 +112,32 @@ function QueueContent({ userId, diveId, onNavigate }: { userId: number, diveId: 
       <div className="space-y-2 text-center">
         <h1 className="text-xl font-serif text-primary-foreground">Today's Findings</h1>
         <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest">
-          {llmRecs.length} discoveries waiting
+          {llmRecs.length} {llmRecs.length === 1 ? 'discovery' : 'discoveries'} waiting
         </p>
       </div>
 
-      <div className="space-y-8">
-        {llmRecs.map(rec => (
-          <RecCard key={rec.id} rec={rec} userId={userId} onRated={() => setRatedCount(c => c + 1)} />
-        ))}
-      </div>
+      {llmRecs.length === 0 ? (
+        <div className="flex flex-col items-center space-y-6 py-12 text-center">
+          <div className="w-16 h-16 rounded-full bg-muted/30 flex items-center justify-center">
+            <Anchor className="w-7 h-7 text-muted-foreground/50" />
+          </div>
+          <div className="space-y-2">
+            <h2 className="text-lg font-serif text-primary-foreground">Nothing found this deep</h2>
+            <p className="text-sm text-muted-foreground leading-relaxed max-w-xs">
+              Couldn't find anything this deep — try a different direction.
+            </p>
+          </div>
+          <Button variant="outline" className="rounded-full" onClick={() => onNavigate(`/dive/${diveId}`)}>
+            Go back
+          </Button>
+        </div>
+      ) : (
+        <div className="space-y-8">
+          {llmRecs.map(rec => (
+            <RecCard key={rec.id} rec={rec} userId={userId} onRated={() => setRatedCount(c => c + 1)} />
+          ))}
+        </div>
+      )}
 
       {controlRecs.length > 0 && (
         <div className="pt-12 space-y-6">

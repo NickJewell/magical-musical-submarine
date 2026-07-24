@@ -93,10 +93,15 @@ export async function propose(opts: {
   directionRationale: string;
   similarArtists: string[];
   count?: number;
+  broader?: boolean;
 }): Promise<Candidate[]> {
-  const { portraitText, recap, directionLabel, directionRationale, similarArtists, count = 5 } = opts;
+  const { portraitText, recap, directionLabel, directionRationale, similarArtists, count = 5, broader = false } = opts;
 
   const wellTroddenList = similarArtists.slice(0, 10).join(", ");
+
+  const broaderHint = broader
+    ? "\n- IMPORTANT: A previous attempt with obscure picks failed verification. Suggest LESS OBSCURE artists — prefer moderately well-known to widely known acts that are more likely to exist in music databases."
+    : "";
 
   const systemPrompt = `You are a music recommendation assistant. Generate track candidates that fit the user's taste and the chosen direction.
 
@@ -104,7 +109,7 @@ CRITICAL RULES:
 - Output ONLY valid JSON matching the schema. No prose, no markdown.
 - The well-trodden artists are: ${wellTroddenList || "none identified"}. Steer AWAY from these for the main direction.
 - Include likely_known: "low" for genuinely obscure picks, "medium" for moderately known, "high" for widely known.
-- Generate ${count} candidates (we will validate and may need extras).`;
+- Generate ${count} candidates (we will validate and may need extras).${broaderHint}`;
 
   const userPrompt = `User taste portrait:
 ${portraitText}

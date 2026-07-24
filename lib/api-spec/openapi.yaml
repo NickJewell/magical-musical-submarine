@@ -176,6 +176,25 @@ paths:
               schema:
                 $ref: "#/components/schemas/PairResponse"
 
+  /taste-pair:
+    get:
+      operationId: getTastePair
+      tags: [onboarding]
+      summary: Get a random pair from post-onboarding history for continuous taste refinement
+      parameters:
+        - name: userId
+          in: query
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Pair or done
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PairResponse"
+
   /pair:
     post:
       operationId: submitPair

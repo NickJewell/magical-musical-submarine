@@ -149,6 +149,26 @@ export const GetNextPairResponse = zod.object({
 
 
 /**
+ * @summary Get a random pair from post-onboarding history for continuous taste refinement
+ */
+export const GetTastePairQueryParams = zod.object({
+  "userId": zod.coerce.number()
+})
+
+export const GetTastePairResponse = zod.object({
+  "done": zod.boolean(),
+  "aMbid": zod.string().nullable(),
+  "aTitle": zod.string().nullable(),
+  "aArtist": zod.string().nullable(),
+  "bMbid": zod.string().nullable(),
+  "bTitle": zod.string().nullable(),
+  "bArtist": zod.string().nullable(),
+  "pairIndex": zod.number().nullable(),
+  "totalPairs": zod.number().nullable()
+})
+
+
+/**
  * @summary Submit pairwise ranking result
  */
 export const submitPairBodyResultMin = -2;

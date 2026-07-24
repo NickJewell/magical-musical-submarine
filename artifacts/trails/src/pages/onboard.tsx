@@ -3,7 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useLocation } from 'wouter';
 import { 
   useSearchMusic, useAddSeed, useListSeeds, 
-  useGetNextPair, useSubmitPair, 
+  useGetNextPair,
   useGeneratePortrait, useUpdatePortrait, useCreateDive,
   getListSeedsQueryKey, getSearchMusicQueryKey, getGetNextPairQueryKey,
   type SearchResult,
@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Loader2, Search, Plus, ChevronDown } from 'lucide-react';
 import { Textarea } from '@/components/ui/textarea';
+import { PairwiseSlider } from '@/components/PairwiseSlider';
 
 const PROMPTS = [
   "A song you put on to focus",
@@ -194,72 +195,34 @@ function Phase1Seeding({ userId, onComplete }: { userId: number, onComplete: () 
 
 function Phase2Pairwise({ userId, onComplete }: { userId: number, onComplete: () => void }) {
   const queryClient = useQueryClient();
-  const { data: pair, isLoading, refetch } = useGetNextPair({ userId }, { query: { enabled: !!userId, queryKey: getGetNextPairQueryKey({ userId }) } });
-  const submitPair = useSubmitPair();
+  const { data: pair, isLoading } = useGetNextPair({ userId }, { query: { enabled: !!userId, queryKey: getGetNextPairQueryKey({ userId }) } });
 
   useEffect(() => {
-    if (pair?.done) {
-      onComplete();
-    }
+    if (pair?.done) onComplete();
   }, [pair, onComplete]);
 
   if (isLoading || !pair) {
     return <div className="flex-1 flex items-center justify-center"><Loader2 className="w-8 h-8 text-primary animate-spin" /></div>;
   }
-
   if (pair.done) return null;
 
-  const handleRank = (result: number) => {
-    submitPair.mutate({
-      data: {
-        userId,
-        aMbid: pair.aMbid!,
-        bMbid: pair.bMbid!,
-        result
-      }
-    }, {
-      onSuccess: () => queryClient.invalidateQueries({ queryKey: getGetNextPairQueryKey({ userId }) })
-    });
-  };
-
   return (
-    <div className="flex-1 flex flex-col items-center justify-center animate-in fade-in duration-700">
-      <h2 className="text-xl font-mono text-muted-foreground uppercase tracking-widest mb-12 text-center">
-        Which resonates more?
-      </h2>
-      
-      <div className="w-full grid grid-cols-2 gap-4 mb-16">
-        <div className="p-6 rounded-2xl bg-secondary/30 border border-primary/20 text-center flex flex-col justify-center min-h-[140px]">
-          <p className="font-medium text-lg text-primary-foreground mb-1">{pair.aTitle}</p>
-          <p className="text-sm text-muted-foreground">{pair.aArtist}</p>
-        </div>
-        <div className="p-6 rounded-2xl bg-secondary/30 border border-primary/20 text-center flex flex-col justify-center min-h-[140px]">
-          <p className="font-medium text-lg text-primary-foreground mb-1">{pair.bTitle}</p>
-          <p className="text-sm text-muted-foreground">{pair.bArtist}</p>
-        </div>
-      </div>
-
-      <div className="w-full space-y-4">
-        <Button onClick={() => handleRank(-2)} variant="outline" className="w-full h-14 rounded-xl justify-start px-6 border-primary/30 hover:bg-primary/10">
-          Strongly {pair.aTitle}
-        </Button>
-        <Button onClick={() => handleRank(-1)} variant="outline" className="w-full h-14 rounded-xl justify-start px-6 border-border hover:bg-secondary/50 text-muted-foreground">
-          Slightly {pair.aTitle}
-        </Button>
-        <Button onClick={() => handleRank(0)} variant="outline" className="w-full h-14 rounded-xl border-border/50 hover:bg-secondary/30 text-muted-foreground/70">
-          Tie
-        </Button>
-        <Button onClick={() => handleRank(1)} variant="outline" className="w-full h-14 rounded-xl justify-end px-6 border-border hover:bg-secondary/50 text-muted-foreground">
-          Slightly {pair.bTitle}
-        </Button>
-        <Button onClick={() => handleRank(2)} variant="outline" className="w-full h-14 rounded-xl justify-end px-6 border-primary/30 hover:bg-primary/10">
-          Strongly {pair.bTitle}
-        </Button>
-      </div>
-      
-      <p className="mt-8 text-xs font-mono text-muted-foreground/50">
-        Pair {pair.pairIndex} of {pair.totalPairs}
-      </p>
+    <div className="flex-1 flex flex-col justify-center animate-in fade-in duration-700">
+      <PairwiseSlider
+        userId={userId}
+        aMbid={pair.aMbid!}
+        aTitle={pair.aTitle!}
+        aArtist={pair.aArtist!}
+        bMbid={pair.bMbid!}
+        bTitle={pair.bTitle!}
+        bArtist={pair.bArtist!}
+        onDone={() => queryClient.invalidateQueries({ queryKey: getGetNextPairQueryKey({ userId }) })}
+      />
+      {pair.pairIndex != null && pair.totalPairs != null && (
+        <p className="mt-6 text-xs font-mono text-muted-foreground/50 text-center">
+          Pair {pair.pairIndex + 1} of {pair.totalPairs}
+        </p>
+      )}
     </div>
   );
 }

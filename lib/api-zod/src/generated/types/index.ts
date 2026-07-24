@@ -24,6 +24,7 @@ export * from './getMetricsParams';
 export * from './getNextPairParams';
 export * from './getPortraitParams';
 export * from './getStateParams';
+export * from './getTastePairParams';
 export * from './healthStatus';
 export * from './listDivesParams';
 export * from './listSeedsParams';

@@ -33,6 +33,7 @@ import type {
   GetNextPairParams,
   GetPortraitParams,
   GetStateParams,
+  GetTastePairParams,
   HealthStatus,
   ListDivesParams,
   ListSeedsParams,
@@ -632,6 +633,90 @@ export function useGetNextPair<TData = Awaited<ReturnType<typeof getNextPair>>, 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetNextPairQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetTastePairUrl = (params: GetTastePairParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/taste-pair?${stringifiedParams}` : `/api/taste-pair`
+}
+
+/**
+ * @summary Get a random pair from post-onboarding history for continuous taste refinement
+ */
+export const getTastePair = async (params: GetTastePairParams, options?: RequestInit): Promise<PairResponse> => {
+
+  return customFetch<PairResponse>(getGetTastePairUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetTastePairQueryKey = (params?: GetTastePairParams,) => {
+    return [
+    `/api/taste-pair`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetTastePairQueryOptions = <TData = Awaited<ReturnType<typeof getTastePair>>, TError = ErrorType<unknown>>(params: GetTastePairParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getTastePair>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetTastePairQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getTastePair>>> = ({ signal }) => getTastePair(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getTastePair>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetTastePairQueryResult = NonNullable<Awaited<ReturnType<typeof getTastePair>>>
+export type GetTastePairQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get a random pair from post-onboarding history for continuous taste refinement
+ */
+
+export function useGetTastePair<TData = Awaited<ReturnType<typeof getTastePair>>, TError = ErrorType<unknown>>(
+ params: GetTastePairParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getTastePair>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetTastePairQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

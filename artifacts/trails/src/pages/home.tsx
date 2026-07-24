@@ -1,9 +1,11 @@
+import { useState } from 'react';
 import { useLocation } from 'wouter';
 import { useUser, useClerk, Show } from '@clerk/react';
-import { useGetState, useCreateDive, getGetStateQueryKey } from '@workspace/api-client-react';
+import { useGetState, useCreateDive, useGetTastePair, getGetStateQueryKey } from '@workspace/api-client-react';
 import { useLocalUser } from '@/lib/useLocalUser';
 import { Button } from '@/components/ui/button';
 import { Loader2 } from 'lucide-react';
+import { PairwiseSlider } from '@/components/PairwiseSlider';
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
 
@@ -86,12 +88,18 @@ function SignedInHome({ onNavigate }: { onNavigate: (path: string) => void }) {
 function HomeContent({ userId, onNavigate }: { userId: number; onNavigate: (path: string) => void }) {
   const { signOut } = useClerk();
   const { user } = useUser();
+  const [showPairwise] = useState(() => Math.random() < 0.5);
+  const [pairwiseDone, setPairwiseDone] = useState(false);
 
   const { data: state, isLoading } = useGetState(
     { userId },
     { query: { enabled: !!userId, queryKey: getGetStateQueryKey({ userId }) } },
   );
   const createDive = useCreateDive();
+  const { data: tastePair } = useGetTastePair(
+    { userId },
+    { query: { enabled: showPairwise && !pairwiseDone && !!userId && !!state?.onboarded } }
+  );
 
   if (isLoading || !state) {
     return (
@@ -112,6 +120,8 @@ function HomeContent({ userId, onNavigate }: { userId: number; onNavigate: (path
       { onSuccess: (dive) => onNavigate(`/dive/${dive.id}`) },
     );
   };
+
+  const activePair = showPairwise && !pairwiseDone && tastePair && !tastePair.done;
 
   return (
     <div className="p-6 pt-16 max-w-md mx-auto space-y-10 animate-in fade-in duration-1000">
@@ -138,6 +148,23 @@ function HomeContent({ userId, onNavigate }: { userId: number; onNavigate: (path
           <p className="text-xl font-serif text-muted-foreground italic">Your portrait is still forming…</p>
         )}
       </div>
+
+      {/* Pairwise taste check — shown on ~50% of logins when enough history exists */}
+      {activePair && (
+        <div className="p-5 rounded-2xl bg-secondary/20 border border-primary/15">
+          <PairwiseSlider
+            userId={userId}
+            aMbid={tastePair.aMbid!}
+            aTitle={tastePair.aTitle!}
+            aArtist={tastePair.aArtist!}
+            bMbid={tastePair.bMbid!}
+            bTitle={tastePair.bTitle!}
+            bArtist={tastePair.bArtist!}
+            onDone={() => setPairwiseDone(true)}
+            onSkip={() => setPairwiseDone(true)}
+          />
+        </div>
+      )}
 
       {state.activeDiveId && (
         <div className="space-y-4 p-6 rounded-2xl bg-secondary/40 border border-border/50">

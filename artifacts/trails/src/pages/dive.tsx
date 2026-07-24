@@ -1,13 +1,14 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams, useLocation } from 'wouter';
 import { 
-  useLoadDive, useLoadRecap, useGetDirections, useChooseStep,
+  useLoadDive, useLoadRecap, useGetDirections, useChooseStep, useGetTastePair,
   getLoadDiveQueryKey, getLoadRecapQueryKey 
 } from '@workspace/api-client-react';
 import { useLocalUser } from '@/lib/useLocalUser';
 import { Button } from '@/components/ui/button';
 import { Loader2, ArrowRight } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
+import { PairwiseSlider } from '@/components/PairwiseSlider';
 
 export default function DivePage() {
   const { id: diveIdStr } = useParams();
@@ -32,14 +33,17 @@ function DiveContent({ userId, diveId, onNavigate }: { userId: number, diveId: n
     { query: { enabled: !!diveId && !!userId, queryKey: getLoadDiveQueryKey({ diveId, userId }) } }
   );
   
-  // Active step is the last one if it has no recommendations yet, otherwise we need a new step.
-  // Actually, the API says `useGetDirections` gets hypothesis + 3 directions when the step hasn't started yet.
-  // We can just call it unconditionally; if it's already generated for the current empty step, it returns it.
-  
   const [directionsReady, setDirectionsReady] = useState(false);
+  const [showPairwise] = useState(() => Math.random() < 0.5);
+  const [pairwiseDone, setPairwiseDone] = useState(false);
 
   const getDirections = useGetDirections();
   const chooseStep = useChooseStep();
+
+  const { data: tastePair } = useGetTastePair(
+    { userId },
+    { query: { enabled: showPairwise && !!userId } }
+  );
   
   const getDirsMutateRef = useRef(getDirections.mutate);
   getDirsMutateRef.current = getDirections.mutate;
@@ -78,13 +82,38 @@ function DiveContent({ userId, diveId, onNavigate }: { userId: number, diveId: n
     );
   };
 
+  const activePair = showPairwise && !pairwiseDone && tastePair && !tastePair.done;
+
   if (diveLoading || getDirections.isPending) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center min-h-[100dvh] space-y-6">
-        <div className="w-16 h-16 rounded-full border border-primary/30 flex items-center justify-center animate-float">
-          <Loader2 className="w-6 h-6 text-primary animate-spin" />
-        </div>
-        <p className="text-sm font-mono text-muted-foreground uppercase tracking-widest animate-pulse">Ping...</p>
+      <div className="flex-1 flex flex-col items-center justify-center min-h-[100dvh] p-6">
+        {activePair ? (
+          <div className="w-full max-w-sm space-y-6">
+            <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest text-center animate-pulse">
+              Charting your course…
+            </p>
+            <div className="p-5 rounded-2xl bg-secondary/20 border border-primary/15">
+              <PairwiseSlider
+                userId={userId}
+                aMbid={tastePair.aMbid!}
+                aTitle={tastePair.aTitle!}
+                aArtist={tastePair.aArtist!}
+                bMbid={tastePair.bMbid!}
+                bTitle={tastePair.bTitle!}
+                bArtist={tastePair.bArtist!}
+                onDone={() => setPairwiseDone(true)}
+                onSkip={() => setPairwiseDone(true)}
+              />
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center space-y-6">
+            <div className="w-16 h-16 rounded-full border border-primary/30 flex items-center justify-center animate-float">
+              <Loader2 className="w-6 h-6 text-primary animate-spin" />
+            </div>
+            <p className="text-sm font-mono text-muted-foreground uppercase tracking-widest animate-pulse">Ping...</p>
+          </div>
+        )}
       </div>
     );
   }

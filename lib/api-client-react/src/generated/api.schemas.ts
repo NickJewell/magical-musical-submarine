@@ -453,6 +453,10 @@ export type GetNextPairParams = {
 userId: number;
 };
 
+export type GetTastePairParams = {
+userId: number;
+};
+
 export type GetPortraitParams = {
 userId: number;
 };

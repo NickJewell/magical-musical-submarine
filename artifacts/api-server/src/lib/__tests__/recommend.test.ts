@@ -259,7 +259,12 @@ function setupDbInsert(rows: unknown[]) {
 // ---------------------------------------------------------------------------
 
 beforeEach(() => {
-  vi.clearAllMocks();
+  // vi.resetAllMocks() — not just clearAllMocks() — so that mockReturnValueOnce
+  // queues from a previous test are fully drained before the next one starts.
+  // clearAllMocks() only wipes call/result history; it leaves unspent queued
+  // return values in place, which can leak across tests (e.g. the cache-hit
+  // test leaves 4 unspent db.select values that would corrupt the next test).
+  vi.resetAllMocks();
 });
 
 describe("recommend() pipeline", () => {
@@ -404,6 +409,110 @@ describe("recommend() pipeline", () => {
       expect(propose).not.toHaveBeenCalled();
       expect(result).toHaveLength(1);
       expect(result[0].title).toBe("Karma Police");
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Scenario 5: Pipeline budget exhausted mid-round — partial results returned
+  //
+  // Three proposals are queued; after the first candidate resolves the mocked
+  // Date.now() jumps past the 30 s budget, so the loop breaks before calling
+  // resolve() for the remaining two candidates.  The result should contain
+  // exactly one LLM rec (the one that resolved before the budget ran out) plus
+  // the control-arm rec.
+  // -------------------------------------------------------------------------
+  describe("pipeline budget exhausted mid-round", () => {
+    it("stops the resolve loop early and returns partial LLM recs plus control-arm rec", async () => {
+      setupDbSelectSequence();
+      setupEnrich();
+      setupLinks();
+      setupNarrate();
+
+      // Three proposals, but the budget expires after the first one resolves.
+      const proposals = [
+        mkProposal("Karma Police", "Radiohead"),
+        mkProposal("Exit Music", "Radiohead"),
+        mkProposal("Paranoid Android", "Radiohead"),
+      ];
+      vi.mocked(propose).mockResolvedValue(proposals);
+
+      // Flip this flag after the first LLM resolve() so Date.now() jumps past
+      // the 30 s pipeline budget on subsequent remainingBudgetMs() calls.
+      let budgetExhausted = false;
+      const T0 = 1_000_000; // arbitrary fixed start time
+      const dateNowSpy = vi
+        .spyOn(Date, "now")
+        .mockImplementation(() => (budgetExhausted ? T0 + 31_000 : T0));
+
+      vi.mocked(resolve)
+        // First LLM candidate — resolves, then exhausts budget
+        .mockImplementationOnce(async () => {
+          const rec = mkResolved("Karma Police", "Radiohead", "mbid-kp");
+          budgetExhausted = true; // budget runs out after this call returns
+          return rec;
+        })
+        // Control-arm (well_trodden) — still called regardless of LLM budget
+        .mockResolvedValueOnce(
+          mkResolved("Fake Plastic Trees", "Radiohead", "mbid-fpt")
+        );
+
+      setupDbInsert([
+        mkInserted("Karma Police", "Radiohead", "llm", "mbid-kp"),
+        mkInserted("Fake Plastic Trees", "Radiohead", "well_trodden", "mbid-fpt"),
+      ]);
+
+      const result = await recommend({ stepId: STEP_ID, userId: USER_ID });
+
+      dateNowSpy.mockRestore();
+
+      // propose() was called exactly once (budget exhausted before any retry)
+      expect(propose).toHaveBeenCalledTimes(1);
+
+      // resolve() called only for the first LLM candidate + control arm —
+      // the other two LLM candidates were never attempted because budget ran out.
+      expect(vi.mocked(resolve)).toHaveBeenCalledTimes(2);
+
+      // Exactly one LLM rec (partial result) plus the control-arm rec
+      expect(result.filter((r) => r.arm === "llm")).toHaveLength(1);
+      expect(result.filter((r) => r.arm === "well_trodden")).toHaveLength(1);
+      expect(result[0].title).toBe("Karma Police");
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Scenario 6: All MB resolve() calls return null (simulates all calls timing
+  // out) — the control-arm rec must still be returned so the UI never shows an
+  // empty spinner instead of at least one recommendation.
+  // -------------------------------------------------------------------------
+  describe("all MB calls time out — control-arm rec always returned", () => {
+    it("returns the control-arm rec even when every resolve() call returns null", async () => {
+      setupDbSelectSequence();
+      setupEnrich();
+      setupLinks();
+      setupNarrate();
+
+      // Both rounds have proposals, but every resolve() returns null (timeout / gate miss)
+      vi.mocked(propose).mockResolvedValue([
+        mkProposal("Hallucinated Track", "Ghost Band"),
+      ]);
+
+      vi.mocked(resolve)
+        .mockResolvedValueOnce(null) // round 1 — timed out / rejected
+        .mockResolvedValueOnce(null) // broader round 2 — also timed out / rejected
+        .mockResolvedValueOnce(
+          mkResolved("Fake Plastic Trees", "Radiohead", "mbid-fpt")
+        ); // control arm always attempted independently
+
+      setupDbInsert([
+        mkInserted("Fake Plastic Trees", "Radiohead", "well_trodden", "mbid-fpt"),
+      ]);
+
+      const result = await recommend({ stepId: STEP_ID, userId: USER_ID });
+
+      // No LLM recs — only the control-arm rec is present
+      expect(result.filter((r) => r.arm === "llm")).toHaveLength(0);
+      expect(result.filter((r) => r.arm === "well_trodden")).toHaveLength(1);
+      expect(result).toHaveLength(1);
     });
   });
 });

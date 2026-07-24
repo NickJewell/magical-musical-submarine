@@ -25,7 +25,7 @@ export interface StreamingLinks {
 
 function spotifySearchUrl(artist: string, title: string): string {
   const q = encodeURIComponent(`${artist} ${title}`);
-  return `https://open.spotify.com/search/${q}`;
+  return `https://open.spotify.com/search/${q}/tracks`;
 }
 
 function youtubeSearchUrl(artist: string, title: string): string {

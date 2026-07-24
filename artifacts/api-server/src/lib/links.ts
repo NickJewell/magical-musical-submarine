@@ -122,17 +122,49 @@ async function cacheEmbedIds(
   }
 }
 
-async function getCachedEmbedIds(mbid: string): Promise<{
+/**
+ * Mine Spotify / YouTube IDs out of the MusicBrainz url-rels block that is
+ * already stored in resolved_entities.relationships_json.  MB records streaming
+ * links as URL relationships, so for most commercially-released tracks this
+ * gives us a direct track ID with zero Odesli calls.
+ */
+function extractEmbedIdsFromRelationships(relJson: unknown): {
   spotifyTrackId: string | null;
   youtubeVideoId: string | null;
-  artworkUrl:     string | null;
+} {
+  let spotifyTrackId: string | null = null;
+  let youtubeVideoId: string | null = null;
+  const relations: unknown[] = (relJson as Record<string, unknown>)?.relations as unknown[] ?? [];
+  for (const rel of relations) {
+    const resource: string = ((rel as Record<string, unknown>)?.url as Record<string, unknown>)?.resource as string ?? "";
+    if (!spotifyTrackId) {
+      const m = resource.match(/open\.spotify\.com\/track\/([A-Za-z0-9]+)/);
+      if (m) spotifyTrackId = m[1];
+    }
+    if (!youtubeVideoId) {
+      const m =
+        resource.match(/youtube\.com\/watch[^?]*\?.*[?&]v=([A-Za-z0-9_-]+)/) ??
+        resource.match(/youtu\.be\/([A-Za-z0-9_-]+)/);
+      if (m) youtubeVideoId = m[1];
+    }
+    if (spotifyTrackId && youtubeVideoId) break;
+  }
+  return { spotifyTrackId, youtubeVideoId };
+}
+
+async function getCachedEmbedIds(mbid: string): Promise<{
+  spotifyTrackId:    string | null;
+  youtubeVideoId:    string | null;
+  artworkUrl:        string | null;
+  relationshipsJson: unknown;
 } | null> {
   try {
     const [row] = await db
       .select({
-        spotifyUri: resolvedEntitiesTable.spotifyUri,
-        youtubeId:  resolvedEntitiesTable.youtubeId,
-        artworkUrl: resolvedEntitiesTable.artworkUrl,
+        spotifyUri:        resolvedEntitiesTable.spotifyUri,
+        youtubeId:         resolvedEntitiesTable.youtubeId,
+        artworkUrl:        resolvedEntitiesTable.artworkUrl,
+        relationshipsJson: resolvedEntitiesTable.relationshipsJson,
       })
       .from(resolvedEntitiesTable)
       .where(eq(resolvedEntitiesTable.mbid, mbid))
@@ -149,8 +181,9 @@ async function getCachedEmbedIds(mbid: string): Promise<{
 
     return {
       spotifyTrackId,
-      youtubeVideoId: row.youtubeId  ?? null,
-      artworkUrl:     row.artworkUrl ?? null,
+      youtubeVideoId:    row.youtubeId         ?? null,
+      artworkUrl:        row.artworkUrl         ?? null,
+      relationshipsJson: row.relationshipsJson  ?? null,
     };
   } catch {
     return null;
@@ -179,55 +212,72 @@ export async function resolveLinks(
   const mbUrl      = `https://musicbrainz.org/${entityType}/${mbid}`;
 
   // Fast path: embed IDs already in DB
+  // ── Step 1: DB fast-path ────────────────────────────────────────────────────
+  // Check dedicated spotifyUri / youtubeId columns first.
+  // If those are empty, mine the MusicBrainz url-rels already stored in
+  // relationships_json — no Odesli call required for most released tracks.
   const cached = await getCachedEmbedIds(mbid);
-  if (cached && (cached.spotifyTrackId || cached.youtubeVideoId)) {
-    // Backfill artwork async if still missing
-    if (!cached.artworkUrl) {
-      fetchItunesData(artist, title)
-        .then(({ artworkUrl }) => artworkUrl && cacheEmbedIds(mbid, null, null, artworkUrl))
-        .catch(() => null);
+  if (cached) {
+    let { spotifyTrackId, youtubeVideoId, artworkUrl } = cached;
+
+    // Promote from MB relationships if the dedicated columns are still empty
+    if (!spotifyTrackId && !youtubeVideoId && cached.relationshipsJson) {
+      const extracted = extractEmbedIdsFromRelationships(cached.relationshipsJson);
+      spotifyTrackId = extracted.spotifyTrackId;
+      youtubeVideoId = extracted.youtubeVideoId;
+      if (spotifyTrackId || youtubeVideoId) {
+        // Persist so next call takes the fast path
+        cacheEmbedIds(mbid, spotifyTrackId, youtubeVideoId, null).catch(() => null);
+      }
     }
-    return {
-      spotify:     cached.spotifyTrackId ? `https://open.spotify.com/track/${cached.spotifyTrackId}` : spotifySearchUrl(artist, title),
-      youtube:     cached.youtubeVideoId ? `https://www.youtube.com/watch?v=${cached.youtubeVideoId}` : youtubeSearchUrl(artist, title),
-      appleMusic:  null,
-      source:      "odesli",
-      spotifyTrackId: cached.spotifyTrackId,
-      youtubeVideoId: cached.youtubeVideoId,
-      artworkUrl:  cached.artworkUrl,
-    };
+
+    if (spotifyTrackId || youtubeVideoId) {
+      if (!artworkUrl) {
+        fetchItunesData(artist, title)
+          .then(({ artworkUrl: url }) => url && cacheEmbedIds(mbid, null, null, url))
+          .catch(() => null);
+      }
+      return {
+        spotify:        spotifyTrackId ? `https://open.spotify.com/track/${spotifyTrackId}` : spotifySearchUrl(artist, title),
+        youtube:        youtubeVideoId ? `https://www.youtube.com/watch?v=${youtubeVideoId}` : youtubeSearchUrl(artist, title),
+        appleMusic:     null,
+        source:         "mb_relations",
+        spotifyTrackId,
+        youtubeVideoId,
+        artworkUrl,
+      };
+    }
   }
 
-  // Fake/placeholder MBIDs (e.g. `lastfm:…`) can't be looked up via MusicBrainz URLs.
-  // Skip Odesli entirely and go straight to iTunes artwork + search-URL fallback.
+  // ── Step 2: Fake/placeholder MBIDs ──────────────────────────────────────────
+  // e.g. `lastfm:lee-morgan:the-sidewinder` — no MusicBrainz row exists.
+  // Await iTunes synchronously so we can return artwork immediately.
   if (!isRealMbid(mbid)) {
-    fetchItunesData(artist, title)
-      .then(({ artworkUrl }) => artworkUrl && cacheEmbedIds(mbid, null, null, artworkUrl))
-      .catch(() => null);
+    const { artworkUrl, trackViewUrl } = await fetchItunesData(artist, title);
     return {
       spotify:        spotifySearchUrl(artist, title),
       youtube:        youtubeSearchUrl(artist, title),
-      appleMusic:     null,
+      appleMusic:     trackViewUrl ?? null,
       source:         "search_fallback",
       spotifyTrackId: null,
       youtubeVideoId: null,
-      artworkUrl:     null,
+      artworkUrl,
     };
   }
 
-  // Odesli (HTTP-cached)
+  // ── Step 3: Odesli (one attempt via MusicBrainz URL) ────────────────────────
   try {
     const data = await httpGet<OdesliResponse>(
       `${ODESLI_BASE}?url=${encodeURIComponent(mbUrl)}&userCountry=US`,
       { cacheKey, cacheTtlMs: 7 * 24 * 60 * 60 * 1000 },
     );
 
-    const platform      = data.linksByPlatform ?? {};
+    const platform       = data.linksByPlatform ?? {};
     const spotifyTrackId = platform.spotify?.url ? parseSpotifyTrackId(platform.spotify.url) : null;
     const youtubeVideoId = platform.youtube?.url ? parseYouTubeVideoId(platform.youtube.url) : null;
     const artworkUrl     = pickOdesliThumbnail(data);
 
-    // Persist + backfill artwork asynchronously — never block the response
+    // Persist + backfill artwork asynchronously
     (async () => {
       const finalArtwork = artworkUrl ?? (await fetchItunesData(artist, title)).artworkUrl;
       await cacheEmbedIds(mbid, spotifyTrackId, youtubeVideoId, finalArtwork);
@@ -243,50 +293,22 @@ export async function resolveLinks(
       artworkUrl,
     };
   } catch (err) {
-    logger.warn({ err, mbid }, "Odesli MusicBrainz lookup failed — retrying via iTunes/Apple Music");
+    logger.warn({ err, mbid }, "Odesli lookup failed — returning search URLs with iTunes artwork");
   }
 
-  // Odesli failed (track not found via MusicBrainz URL).
-  // Fallback: iTunes search → Apple Music URL → Odesli again.
-  // Apple Music is a first-class Odesli source and resolves to Spotify track IDs reliably.
-  try {
-    const { artworkUrl: itunesArtwork, trackViewUrl } = await fetchItunesData(artist, title);
-    if (trackViewUrl) {
-      const itunesCacheKey = `links:am:${artist.toLowerCase()}:${title.toLowerCase()}`;
-      const data2 = await httpGet<OdesliResponse>(
-        `${ODESLI_BASE}?url=${encodeURIComponent(trackViewUrl)}&userCountry=US`,
-        { cacheKey: itunesCacheKey, cacheTtlMs: 7 * 24 * 60 * 60 * 1000 },
-      );
-      const platform2      = data2.linksByPlatform ?? {};
-      const spotifyTrackId = platform2.spotify?.url ? parseSpotifyTrackId(platform2.spotify.url) : null;
-      const youtubeVideoId = platform2.youtube?.url ? parseYouTubeVideoId(platform2.youtube.url) : null;
-      const artworkUrl     = pickOdesliThumbnail(data2) ?? itunesArtwork;
-
-      cacheEmbedIds(mbid, spotifyTrackId, youtubeVideoId, artworkUrl).catch(() => null);
-
-      return {
-        spotify:     platform2.spotify?.url    ?? spotifySearchUrl(artist, title),
-        youtube:     platform2.youtube?.url    ?? youtubeSearchUrl(artist, title),
-        appleMusic:  platform2.appleMusic?.url ?? trackViewUrl,
-        source:      "odesli",
-        spotifyTrackId,
-        youtubeVideoId,
-        artworkUrl,
-      };
-    }
-    // iTunes found nothing — cache artwork only and return search URLs
-    if (itunesArtwork) cacheEmbedIds(mbid, null, null, itunesArtwork).catch(() => null);
-  } catch (err2) {
-    logger.warn({ err2, mbid }, "iTunes/Apple Music Odesli fallback also failed");
-  }
+  // ── Step 4: Odesli failed — return search URLs but always include artwork ────
+  // Await iTunes synchronously so artwork is available in this response, not
+  // only after a future re-fetch.
+  const { artworkUrl: itunesArtwork, trackViewUrl } = await fetchItunesData(artist, title);
+  if (itunesArtwork) cacheEmbedIds(mbid, null, null, itunesArtwork).catch(() => null);
 
   return {
     spotify:        spotifySearchUrl(artist, title),
     youtube:        youtubeSearchUrl(artist, title),
-    appleMusic:     null,
+    appleMusic:     trackViewUrl ?? null,
     source:         "search_fallback",
     spotifyTrackId: null,
     youtubeVideoId: null,
-    artworkUrl:     null,
+    artworkUrl:     itunesArtwork,
   };
 }

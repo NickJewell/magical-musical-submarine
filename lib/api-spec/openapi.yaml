@@ -641,6 +641,7 @@ components:
       properties:
         mbid:
           type: string
+          description: MusicBrainz ID — empty string when the MBID could not be resolved
         type:
           type: string
           enum: [track, album, artist]
@@ -656,7 +657,10 @@ components:
           type: ["string", "null"]
         score:
           type: number
-      required: [mbid, type, title, artist, year, release, disambiguation, score]
+        verified:
+          type: boolean
+          description: false when the MBID could not be confirmed via MusicBrainz; the entry may still be added as a seed
+      required: [mbid, type, title, artist, year, release, disambiguation, score, verified]
 
     # --- Onboarding ---
     PairResponse:

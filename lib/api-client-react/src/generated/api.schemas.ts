@@ -98,6 +98,7 @@ export const SearchResultType = {
 } as const;
 
 export interface SearchResult {
+  /** MusicBrainz ID — empty string when the MBID could not be resolved */
   mbid: string;
   type: SearchResultType;
   title: string;
@@ -109,6 +110,8 @@ export interface SearchResult {
   /** @nullable */
   disambiguation: string | null;
   score: number;
+  /** false when the MBID could not be confirmed via MusicBrainz; the entry may still be added as a seed */
+  verified: boolean;
 }
 
 export interface PairResponse {

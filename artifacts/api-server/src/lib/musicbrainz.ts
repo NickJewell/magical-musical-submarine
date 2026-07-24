@@ -328,7 +328,7 @@ export async function searchMusicBrainz(
   type: "track" | "album" | "artist" = "track",
   page = 1,
   timeoutMs = MB_REQUEST_TIMEOUT_MS
-): Promise<Array<{ mbid: string; type: "track" | "album" | "artist"; title: string; artist: string; year: number | null; release: string | null; disambiguation: string | null; score: number }>> {
+): Promise<Array<{ mbid: string; type: "track" | "album" | "artist"; title: string; artist: string; year: number | null; release: string | null; disambiguation: string | null; score: number; verified: boolean }>> {
   const encoded = encodeURIComponent(query);
 
   if (type === "track") {
@@ -371,18 +371,17 @@ export async function searchMusicBrainz(
         );
       }
 
-      return candidates
-        .filter((c) => c.mbid)
-        .map((c, i) => ({
-          mbid: c.mbid,
-          type: "track" as const,
-          title: c.title,
-          artist: c.artist,
-          year: null,
-          release: null,
-          disambiguation: null,
-          score: 1 - i * 0.01, // preserve popularity order
-        }));
+      return candidates.map((c, i) => ({
+        mbid: c.mbid,
+        type: "track" as const,
+        title: c.title,
+        artist: c.artist,
+        year: null,
+        release: null,
+        disambiguation: null,
+        score: 1 - i * 0.01, // preserve popularity order
+        verified: !!c.mbid,
+      }));
     }
 
     // Fallback: MusicBrainz text search (no popularity order)
@@ -397,6 +396,7 @@ export async function searchMusicBrainz(
       release: r.releases?.[0]?.title ?? null,
       disambiguation: null,
       score: r.score / 100,
+      verified: true,
     }));
   }
 
@@ -412,6 +412,7 @@ export async function searchMusicBrainz(
       release: r.title,
       disambiguation: null,
       score: r.score / 100,
+      verified: true,
     }));
   }
 
@@ -428,5 +429,6 @@ export async function searchMusicBrainz(
     release: null,
     disambiguation: a.disambiguation ?? null,
     score: a.score / 100,
+    verified: true,
   }));
 }

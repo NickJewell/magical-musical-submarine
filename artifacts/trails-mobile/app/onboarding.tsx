@@ -73,7 +73,8 @@ export default function OnboardingScreen() {
   });
 
   const handleAddSeed = async (result: SearchResult) => {
-    if (!userId || addedMbids.has(result.mbid)) return;
+    const resultKey = result.mbid || `${result.title}-${result.artist}`;
+    if (!userId || addedMbids.has(resultKey)) return;
     setAddSeedError(null);
     try {
       await addSeed.mutateAsync({
@@ -86,7 +87,7 @@ export default function OnboardingScreen() {
           year: result.year,
         },
       });
-      setAddedMbids((s) => new Set(s).add(result.mbid));
+      setAddedMbids((s) => new Set(s).add(resultKey));
       const next = seedCount + 1;
       setSeedCount(next);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -202,7 +203,7 @@ export default function OnboardingScreen() {
         ) : (
           <FlatList
             data={searchResults.data ?? []}
-            keyExtractor={(item) => item.mbid}
+            keyExtractor={(item) => item.mbid || `${item.title}-${item.artist}`}
             contentContainerStyle={{ paddingBottom: botPad + 80 }}
             ListEmptyComponent={
               debouncedQuery.length >= 2 && !searchResults.isFetching ? (
@@ -214,7 +215,8 @@ export default function OnboardingScreen() {
               ) : null
             }
             renderItem={({ item }) => {
-              const added = addedMbids.has(item.mbid);
+              const itemKey = item.mbid || `${item.title}-${item.artist}`;
+              const added = addedMbids.has(itemKey);
               return (
                 <TouchableOpacity
                   onPress={() => handleAddSeed(item)}
@@ -246,6 +248,21 @@ export default function OnboardingScreen() {
                       {item.artist}
                       {item.year ? ` · ${item.year}` : ''}
                     </Text>
+                    {!item.verified && (
+                      <Text
+                        style={{
+                          fontSize: 9,
+                          fontFamily: 'Inter_400Regular',
+                          color: '#f59e0b',
+                          opacity: 0.7,
+                          textTransform: 'uppercase',
+                          letterSpacing: 1,
+                          marginTop: 2,
+                        }}
+                      >
+                        unverified
+                      </Text>
+                    )}
                   </View>
                   <Ionicons
                     name={added ? 'checkmark-circle' : 'add-circle-outline'}

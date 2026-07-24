@@ -69,14 +69,15 @@ export const SearchMusicQueryParams = zod.object({
 })
 
 export const SearchMusicResponseItem = zod.object({
-  "mbid": zod.string(),
+  "mbid": zod.string().describe('MusicBrainz ID — empty string when the MBID could not be resolved'),
   "type": zod.enum(['track', 'album', 'artist']),
   "title": zod.string(),
   "artist": zod.string(),
   "year": zod.number().nullable(),
   "release": zod.string().nullable(),
   "disambiguation": zod.string().nullable(),
-  "score": zod.number()
+  "score": zod.number(),
+  "verified": zod.boolean().describe('false when the MBID could not be confirmed via MusicBrainz; the entry may still be added as a seed')
 })
 export const SearchMusicResponse = zod.array(SearchMusicResponseItem)
 

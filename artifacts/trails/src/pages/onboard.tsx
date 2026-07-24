@@ -394,7 +394,7 @@ function Phase1Seeding({ userId, onComplete }: { userId: number, onComplete: () 
             {/* Result rows */}
             {hasResults && allResults.map((r) => (
               <button
-                key={`${r.mbid}-${r.title}`}
+                key={r.mbid ? `mbid-${r.mbid}` : `unverified-${r.title}-${r.artist}`}
                 onClick={() => handleAddSeed(r.mbid, r.title, r.artist, r.year)}
                 disabled={addSeed.isPending}
                 className="w-full text-left p-4 rounded-xl bg-secondary/20 hover:bg-secondary/50 active:bg-secondary/70 transition-colors flex items-center gap-4 border border-border/30 hover:border-primary/40 group"
@@ -403,6 +403,9 @@ function Phase1Seeding({ userId, onComplete }: { userId: number, onComplete: () 
                   <p className="font-semibold text-base text-foreground truncate leading-tight">{r.title}</p>
                   <p className="text-sm font-medium text-primary/90 truncate">{r.artist}</p>
                   {r.release && <p className="text-xs text-muted-foreground truncate">{r.release}</p>}
+                  {!r.verified && (
+                    <p className="text-[10px] font-mono text-amber-400/70 uppercase tracking-widest">unverified</p>
+                  )}
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   {r.year && (

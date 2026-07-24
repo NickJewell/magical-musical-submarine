@@ -12,7 +12,7 @@ router.post("/rate", async (req, res): Promise<void> => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const { userId, recId, listenState, score } = parsed.data;
+  const { userId, recId, listenState, score, reviewText } = parsed.data;
 
   // Ownership chain: rec → step → dive → userId
   const [rec] = await db
@@ -58,6 +58,7 @@ router.post("/rate", async (req, res): Promise<void> => {
       recId,
       listenState,
       score: score != null ? String(score) : null,
+      reviewText: reviewText ?? null,
     })
     .returning();
 
@@ -65,7 +66,7 @@ router.post("/rate", async (req, res): Promise<void> => {
   await db.insert(tasteEventsTable).values({
     userId,
     kind: "rating",
-    payloadJson: { recId, listenState, score },
+    payloadJson: { recId, listenState, score, reviewText: reviewText ?? null },
   });
 
   res.status(201).json({
@@ -73,6 +74,7 @@ router.post("/rate", async (req, res): Promise<void> => {
     recId: rating.recId,
     listenState: rating.listenState,
     score: rating.score != null ? parseFloat(String(rating.score)) : null,
+    reviewText: rating.reviewText ?? null,
     ratedAt: rating.ratedAt.toISOString(),
   });
 });

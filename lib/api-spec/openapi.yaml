@@ -963,6 +963,8 @@ components:
           enum: [listened, skipped, known]
         score:
           type: ["number", "null"]
+        reviewText:
+          type: ["string", "null"]
         ratedAt:
           type: string
           format: date-time
@@ -980,6 +982,9 @@ components:
           enum: [listened, skipped, known]
         score:
           type: ["number", "null"]
+        reviewText:
+          type: ["string", "null"]
+          maxLength: 500
       required: [userId, recId, listenState]
 
     PathRating:

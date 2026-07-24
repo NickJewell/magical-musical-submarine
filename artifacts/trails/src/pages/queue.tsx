@@ -161,6 +161,8 @@ function QueueContent({ userId, diveId, onNavigate }: { userId: number, diveId: 
   );
 }
 
+const REVIEW_MAX = 500;
+
 function RecCard({ rec, userId, onRated }: { rec: Recommendation, userId: number, onRated: () => void }) {
   const [links, setLinks] = useState(rec.linksJson);
   const [shouldFetchLinks, setShouldFetchLinks] = useState(false);
@@ -174,28 +176,37 @@ function RecCard({ rec, userId, onRated }: { rec: Recommendation, userId: number
   );
   
   useEffect(() => {
-    if (fetchedLinks && !links) {
-      setLinks(fetchedLinks);
-    }
+    if (fetchedLinks && !links) setLinks(fetchedLinks);
   }, [fetchedLinks, links]);
   
   const [listenState, setListenState] = useState<string | null>(rec.latestRating?.listenState || null);
   const [score, setScore] = useState<number | null>(rec.latestRating?.score || null);
+  const [review, setReview] = useState('');
+  const [reviewSaved, setReviewSaved] = useState(false);
   const rateRec = useRateRec();
 
-  const handleResolveLinks = () => {
-    if (links) return;
-    setShouldFetchLinks(true);
-  };
+  const handleResolveLinks = () => { if (!links) setShouldFetchLinks(true); };
 
   const handleRate = (state: string, newScore: number | null) => {
     setListenState(state);
     setScore(newScore);
+    setReviewSaved(false);
     rateRec.mutate(
       { data: { userId, recId: rec.id, listenState: state as any, score: newScore } },
       { onSuccess: () => onRated() }
     );
   };
+
+  const handleSubmitReview = () => {
+    if (!listenState || !review.trim()) return;
+    rateRec.mutate(
+      { data: { userId, recId: rec.id, listenState: listenState as any, score, reviewText: review.trim() } },
+      { onSuccess: () => setReviewSaved(true) }
+    );
+  };
+
+  const showStars = listenState === 'listened' || listenState === 'known';
+  const showReview = showStars && score !== null;
 
   return (
     <div className="bg-secondary/20 rounded-3xl p-6 border border-primary/10 space-y-6 shadow-xl relative overflow-hidden group">
@@ -240,9 +251,11 @@ function RecCard({ rec, userId, onRated }: { rec: Recommendation, userId: number
         )}
       </div>
 
-      <div className="pt-6 border-t border-border/50">
-        <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest mb-3">Feedback</p>
-        <div className="flex gap-2 mb-4 bg-secondary/40 p-1 rounded-xl">
+      <div className="pt-6 border-t border-border/50 space-y-4">
+        <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest">Feedback</p>
+
+        {/* Listen state toggle */}
+        <div className="flex gap-2 bg-secondary/40 p-1 rounded-xl">
           {(['listened', 'skipped', 'known'] as const).map(state => (
             <button
               key={state}
@@ -258,10 +271,41 @@ function RecCard({ rec, userId, onRated }: { rec: Recommendation, userId: number
           ))}
         </div>
 
-        {(listenState === 'listened' || listenState === 'known') && (
-          <div className="flex items-center justify-between px-2 pt-2 animate-in slide-in-from-top-2">
+        {/* Stars */}
+        {showStars && (
+          <div className="flex items-center justify-between px-2 animate-in slide-in-from-top-2">
             <span className="text-xs text-muted-foreground">Rating</span>
             <HalfStarRating score={score} onChange={(s) => handleRate(listenState, s)} />
+          </div>
+        )}
+
+        {/* Review text box — appears after a star score is set */}
+        {showReview && (
+          <div className="animate-in slide-in-from-top-2 space-y-2">
+            <div className="relative">
+              <textarea
+                value={review}
+                onChange={(e) => { setReview(e.target.value.slice(0, REVIEW_MAX)); setReviewSaved(false); }}
+                placeholder="Add a note — what did this remind you of? (optional)"
+                rows={3}
+                className="w-full text-sm bg-secondary/30 border border-border/40 rounded-xl px-3 py-2.5 text-foreground placeholder:text-muted-foreground/50 resize-none focus:outline-none focus:border-primary/50 transition-colors"
+              />
+              <span className={`absolute bottom-2 right-3 text-[10px] font-mono tabular-nums ${review.length >= REVIEW_MAX ? 'text-destructive' : 'text-muted-foreground/50'}`}>
+                {review.length}/{REVIEW_MAX}
+              </span>
+            </div>
+            {review.trim() && !reviewSaved && (
+              <button
+                onClick={handleSubmitReview}
+                disabled={rateRec.isPending}
+                className="text-xs font-medium text-primary hover:text-primary/80 transition-colors disabled:opacity-50"
+              >
+                {rateRec.isPending ? 'Saving…' : 'Save note'}
+              </button>
+            )}
+            {reviewSaved && (
+              <p className="text-xs text-primary/70 font-mono">Note saved ✓</p>
+            )}
           </div>
         )}
       </div>

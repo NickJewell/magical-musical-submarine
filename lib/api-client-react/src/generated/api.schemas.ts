@@ -252,6 +252,8 @@ export interface Rating {
   listenState: RatingListenState;
   /** @nullable */
   score: number | null;
+  /** @nullable */
+  reviewText?: string | null;
   ratedAt: string;
 }
 
@@ -379,6 +381,11 @@ export interface RatingInput {
   listenState: RatingInputListenState;
   /** @nullable */
   score?: number | null;
+  /**
+     * @maxLength 500
+     * @nullable
+     */
+  reviewText?: string | null;
 }
 
 export interface PathRatingInput {

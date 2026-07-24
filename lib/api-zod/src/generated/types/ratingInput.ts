@@ -13,4 +13,9 @@ export interface RatingInput {
   listenState: RatingInputListenState;
   /** @nullable */
   score?: number | null;
+  /**
+     * @maxLength 500
+     * @nullable
+     */
+  reviewText?: string | null;
 }

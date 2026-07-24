@@ -13,5 +13,7 @@ export interface Rating {
   listenState: RatingListenState;
   /** @nullable */
   score: number | null;
+  /** @nullable */
+  reviewText?: string | null;
   ratedAt: Date;
 }

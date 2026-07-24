@@ -6,6 +6,7 @@ export const ratingsTable = pgTable("ratings", {
   recId: integer("rec_id").notNull().references(() => recommendationsTable.id),
   listenState: text("listen_state").notNull(), // listened | skipped | known
   score: numeric("score", { precision: 2, scale: 1 }),
+  reviewText: text("review_text"),
   ratedAt: timestamp("rated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

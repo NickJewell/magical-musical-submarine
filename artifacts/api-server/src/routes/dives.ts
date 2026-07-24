@@ -253,7 +253,8 @@ router.get("/recap", async (req, res): Promise<void> => {
       .map((r) => {
         const state = r.rating?.listenState ?? "unrated";
         const score = r.rating?.score != null ? ` (${r.rating.score}/5)` : "";
-        return `"${r.rec.title}" by ${r.rec.artist} — ${state}${score}`;
+        const review = r.rating?.reviewText ? ` — note: "${r.rating.reviewText}"` : "";
+        return `"${r.rec.title}" by ${r.rec.artist} — ${state}${score}${review}`;
       })
       .join(", ");
 

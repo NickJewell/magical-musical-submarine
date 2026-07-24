@@ -311,6 +311,7 @@ export const LoadDiveResponse = zod.object({
   "recId": zod.number(),
   "listenState": zod.enum(['listened', 'skipped', 'known']),
   "score": zod.number().nullable(),
+  "reviewText": zod.string().nullish(),
   "ratedAt": zod.coerce.date()
 }),zod.null()]),
   "createdAt": zod.coerce.date()
@@ -430,6 +431,7 @@ export const ChooseStepResponse = zod.object({
   "recId": zod.number(),
   "listenState": zod.enum(['listened', 'skipped', 'known']),
   "score": zod.number().nullable(),
+  "reviewText": zod.string().nullish(),
   "ratedAt": zod.coerce.date()
 }),zod.null()]),
   "createdAt": zod.coerce.date()
@@ -475,6 +477,7 @@ export const GetRecommendationsResponseItem = zod.object({
   "recId": zod.number(),
   "listenState": zod.enum(['listened', 'skipped', 'known']),
   "score": zod.number().nullable(),
+  "reviewText": zod.string().nullish(),
   "ratedAt": zod.coerce.date()
 }),zod.null()]),
   "createdAt": zod.coerce.date()
@@ -506,11 +509,16 @@ export const ResolveLinksResponse = zod.object({
 /**
  * @summary Rate a recommendation
  */
+export const rateRecBodyReviewTextMax = 500;
+
+
+
 export const RateRecBody = zod.object({
   "userId": zod.number(),
   "recId": zod.number(),
   "listenState": zod.enum(['listened', 'skipped', 'known']),
-  "score": zod.number().nullish()
+  "score": zod.number().nullish(),
+  "reviewText": zod.string().max(rateRecBodyReviewTextMax).nullish()
 })
 
 export const RateRecResponse = zod.object({
@@ -518,6 +526,7 @@ export const RateRecResponse = zod.object({
   "recId": zod.number(),
   "listenState": zod.enum(['listened', 'skipped', 'known']),
   "score": zod.number().nullable(),
+  "reviewText": zod.string().nullish(),
   "ratedAt": zod.coerce.date()
 })
 

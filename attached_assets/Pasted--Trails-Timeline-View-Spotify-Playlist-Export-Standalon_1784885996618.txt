@@ -1,0 +1,177 @@
+# Trails — Timeline View & Spotify Playlist Export
+
+*Standalone feature spec extending the main build spec (`REPLIT-BUILD-SPEC.md`). Two features: a scrollable dive-history **Timeline view** (§15) and an opt-in **Spotify playlist export** (§16). Section numbers continue the main spec's numbering. Build both AFTER the core loop is working; §16 is behind a feature flag.*
+
+**Prerequisites:** the core schema (`dives`, `dive_steps`, `recommendations`, `ratings`, `resolved_entities`, `users`) and the resolver/links modules from the main spec. Both features are read/act over existing data.
+
+---
+
+## 15. Timeline view (dive history)
+
+### Purpose
+An at-a-glance, scrollable history of the user's dives over time — each day a column, each **dive path** a small titled card, each song a row with its star rating. It's the "memory lane" artifact that makes the serialized-curation loop *feel* like a journey and reinforces the "previously on…" continuity. Read-only; a lens on existing data, not a new data source.
+
+### Placement
+Route `/timeline` (linked from Home and the nav). User-facing.
+
+### Data mapping (from the core schema)
+- **Day column** = a calendar date (in the user's timezone) that has activity, derived from `dive_steps.created_at`. Only days with ≥1 dive path get a column. The current date's header reads **"Today"**; others read e.g. **"22nd July"** (short ordinal + month; include the year only when not the current year).
+- **Dive-path card** = one `dive_step`. Title = `chosen_direction` (fallback: truncated `hypothesis_text`). Optionally prefix with the parent `dives.name` when a day spans multiple dives, e.g. *"Melody as Architecture · Immaculate Melancholy."*
+- **Song row** = one `recommendation` under that step where `arm='llm'`, ordered by `recommendations.id`. Control-arm (`well_trodden`) picks are **excluded by default** (toggleable — see Interaction).
+- **Stars** = the *latest* rating for that rec (`ratings`, max by `rated_at`): render `score` as 1–5 stars with **half-star support**; unrated → 5 faint outline stars + a muted "not rated" affordance.
+
+### Anatomy & layout
+- A horizontal **timeline axis** (a rule) sits above a row of **day columns**, laid out **chronologically: left = older, right = newer**. Fixed column width (~260px desktop; near-full-width with a peek of the neighbour on mobile).
+- Each day column: bold date header, then a vertical stack of **dive-path cards**. Each card: italic path title, then its song rows (song title left; star tiles right, left-aligned — the natural "staircase" falls out of differing star counts).
+- Star tiles: dark rounded chips with gold star fill.
+
+### Interaction
+- **Horizontal scroll (primary, across time):** swipe/drag through days; optional scroll-snap per column. **Default scroll position = far right (Today).** Scrolling **left lazy-loads older days** (paginate by date — see API). Show a subtle "← earlier" affordance when more history exists.
+- **Vertical behavior within a day (busy days):** each day column has a `max-height` of the viewport; when its content overflows, **the column scrolls vertically on its own**, independent of the horizontal scroll, so a day with many dives doesn't blow out the layout.
+- **Collapsible dive-path cards:** tapping a path title collapses/expands its song list. Collapsed state shows a one-line summary: *"3 songs · avg ★3.7 · 2 new."* Default: **Today fully expanded; older days' paths collapsed** once a day exceeds ~2 paths or ~8 songs (deep history stays scannable, expandable on demand).
+- **Tap-throughs:** tapping a **song row** opens that rec's detail (narrative + Spotify/YouTube links — reuses the queue card); tapping a **path title** deep-links to that dive step's recap.
+- **Optional toggle:** a small "show the road not taken" switch reveals the greyed control-arm pick per path (ties into the discovery framing without cluttering the default view).
+
+### Nice-to-have signal (cheap, high-value)
+Given the discovery emphasis, mark each song row's listen-state: a tiny dot/tag for **known** vs **new** (dim skipped rows). Lets the timeline double as a visual discovery-rate history.
+
+### Responsive
+- **Desktop:** several day columns side-by-side; horizontal scroll for more.
+- **Mobile:** one day column near-full-width with a peek of the next; horizontal swipe between days; vertical scroll within the active day.
+
+### API
+`GET /api/timeline?before=<ISO date|cursor>&days=<n=14>` →
+```
+{ days: [ { date, label,                       // "Today" | "22nd July"
+            paths: [ { diveStepId, diveName, title,
+                       summary: { count, avgScore, newCount },
+                       songs: [ { recId, title, artist,
+                                  score, listenState, arm } ] } ] } ],
+  nextCursor }                                  // for lazy left-scroll of older days
+```
+Scoped by `userId`; days ordered oldest→newest in the page; `nextCursor` walks further back in time.
+
+### States
+- **Empty** (no dives yet): a "your trail starts here" nudge → Onboarding/Directions.
+- **Loading older days:** skeleton column on the left edge while paginating.
+- **Unrated songs:** outline stars + a "rate" affordance that jumps into the rating flow.
+
+### Acceptance criteria
+- Opens on Today (rightmost); scrolling left loads history via `nextCursor`.
+- A day with many dives scrolls vertically inside its own column without breaking the horizontal timeline.
+- Path cards collapse/expand; collapsed cards show count + avg stars.
+- Half-star ratings render correctly; unrated songs are visually distinct.
+- Tapping a song opens its narrative+links; tapping a path opens its recap.
+- Fully usable one-handed on a phone (swipe across days, scroll within a day).
+
+---
+
+## 16. Spotify playlist export (opt-in)
+
+### Purpose
+Let a user turn a dive path into a real Spotify playlist named **`MMS_{YYYY-MM-DD}_{DivePathTitle}`** and add all of that path's tracks in one tap.
+
+### Guiding principle: contain the OAuth blast radius
+Writing to a user's Spotify account is the **only** feature that needs Spotify user OAuth — the rest of the app stays OAuth-free (browse, rate, deep-link out). So this is a strictly **opt-in layer on top**:
+- The core app never requires a Spotify login.
+- Export is gated behind a one-time **"Connect Spotify."** Not connected → the button reads *"Connect Spotify to save dives as playlists."* Connected → one tap builds the playlist.
+- Ship behind a feature flag `FEATURE_SPOTIFY_EXPORT` so it can be toggled off entirely.
+
+### Reality check (so nobody's surprised)
+- **Needs user OAuth** (Authorization Code + PKCE) with scope **`playlist-modify-private`** (and `playlist-modify-public` only if public playlists are offered). Nothing more.
+- **Premium NOT required** — playlist create/edit works on free accounts. (Premium is only for API *playback*, which we don't do.)
+- **Endpoints are current** — playlist create/add were not part of the 2024 API deprecations.
+- **Dev-Mode allowlist:** a non-extended Spotify app only serves a small, manually-added allowlist of accounts (add each tester's Spotify email in the developer dashboard). **Fine for owner + friends; a wall only for public distribution** (which requires Spotify's extended-quota business review — out of scope). Document this clearly in the connect UI.
+
+### Environment (add to main spec §4)
+```
+SPOTIFY_CLIENT_ID=
+SPOTIFY_CLIENT_SECRET=
+SPOTIFY_REDIRECT_URI=        # e.g. {APP_BASE_URL}/api/spotify/callback
+FEATURE_SPOTIFY_EXPORT=true  # feature flag
+```
+
+### Schema additions
+```sql
+-- Per-user Spotify connection (one row per user who has connected).
+CREATE TABLE spotify_accounts (
+  user_id          INT PRIMARY KEY REFERENCES users(id),
+  spotify_user_id  TEXT NOT NULL,
+  access_token     TEXT NOT NULL,
+  refresh_token    TEXT NOT NULL,
+  token_expires_at TIMESTAMPTZ NOT NULL,
+  scope            TEXT NOT NULL,
+  connected_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Record of exported playlists (for dedup / "already exported" state).
+CREATE TABLE spotify_playlists (
+  id                  SERIAL PRIMARY KEY,
+  user_id             INT NOT NULL REFERENCES users(id),
+  dive_step_id        INT NOT NULL REFERENCES dive_steps(id),
+  spotify_playlist_id TEXT NOT NULL,
+  name                TEXT NOT NULL,
+  tracks_added        INT NOT NULL,
+  tracks_total        INT NOT NULL,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Cache the resolved Spotify URI on the verified entity so we don't re-search.
+ALTER TABLE resolved_entities ADD COLUMN spotify_uri TEXT;   -- e.g. spotify:track:...
+```
+Store tokens server-side only; never expose them to the client.
+
+### MBID → Spotify URI resolution
+To *add* a track you need its Spotify track URI, not its MBID. For each `recommendation` in the path:
+1. If `resolved_entities.spotify_uri` is cached, use it.
+2. Else try to extract the Spotify track ID from the Odesli response we already fetch for links.
+3. Else **Spotify Search** (`GET /v1/search?type=track&q=...`) using the **verified** MB `artist` + `title`; take the top confident match; cache it back to `resolved_entities.spotify_uri`.
+4. If nothing resolves → **skip that track** and report it (never guess/insert a wrong track).
+
+For `type='album'` recs, use the designated `entry_track_mbid`'s Spotify URI (consistent with the track-default rule).
+
+### OAuth flow
+1. `GET /api/spotify/connect` → 302 to Spotify `/authorize` (PKCE, scope `playlist-modify-private`, `state` = signed userId).
+2. `GET /api/spotify/callback` → exchange `code` for tokens → upsert `spotify_accounts` → redirect back to the originating screen with a success flag.
+3. A shared `getValidSpotifyToken(userId)` helper refreshes via `refresh_token` when `token_expires_at` is near/past.
+
+### Export
+`POST /api/spotify/export-path` `{ diveStepId, visibility?: "private" }`:
+1. Require a connected account (else 409 `not_connected`).
+2. Load the step's `arm='llm'` recs; resolve each to a Spotify URI (above).
+3. Build the name: `MMS_{YYYY-MM-DD}_{DivePathTitle}` — date from the step's `created_at` (user tz); `DivePathTitle` = `chosen_direction`, sanitized (strip/replace characters Spotify dislikes, collapse whitespace, truncate to a sane length).
+4. **Dedup:** if a `spotify_playlists` row already exists for this `diveStepId`, **append missing tracks** to that playlist instead of creating a duplicate (idempotent re-export).
+5. Else `POST /v1/users/{spotify_user_id}/playlists` (public=false), then `POST /v1/playlists/{id}/tracks` with the resolved URIs (batch ≤100).
+6. Record/refresh the `spotify_playlists` row.
+7. Return `{ playlistUrl, name, added, total, skipped: [{title, artist, reason}] }`.
+
+### API additions (main spec §8)
+| Method & path | Purpose |
+|---|---|
+| `GET /api/spotify/connect` | begin OAuth (redirect to Spotify) |
+| `GET /api/spotify/callback` | OAuth callback → store tokens |
+| `GET /api/spotify/status` | `{ connected: bool, spotifyUserId? }` |
+| `POST /api/spotify/export-path` | create/append playlist for a dive step |
+| `DELETE /api/spotify/disconnect` | forget tokens (optional) |
+
+### UI
+- **Connect entry point:** in Settings and inline on the export button when disconnected — with a one-line note that only allowlisted Spotify accounts can connect while the app is in Spotify dev mode.
+- **Export control:** a Spotify button on each dive-path (in the Timeline card and/or the dive queue). States: *Connect Spotify* → *Export to Spotify* → (busy) → *Open playlist* (deep link) with a toast: *"Added 3 of 3 · Open in Spotify."* If some skipped: *"Added 2 of 3 (1 not on Spotify)."*
+- Re-tapping an already-exported path says *Open playlist* and silently appends anything new (idempotent).
+
+### Graceful behavior & edge cases
+- **Not connected** → prompt to connect; never hard-fail.
+- **Token expired** → auto-refresh; if refresh fails (revoked), clear the row and re-prompt connect.
+- **Unresolvable tracks** → skipped and reported, never mismatched.
+- **Empty path** (all skipped) → don't create an empty playlist; tell the user why.
+- **Dev-mode 403 for a non-allowlisted account** → friendly message explaining the allowlist, not a raw error.
+
+### Out of scope
+Public playlists by default; playlist cover art; playback control (needs Premium + different scopes); collaborative playlists; going past the dev-mode allowlist (extended-quota business review).
+
+### Acceptance criteria
+- A connected user can one-tap export a dive path to a Spotify playlist named `MMS_{date}_{title}` containing all resolvable LLM tracks, and open it on their phone.
+- Re-exporting the same path does **not** create a duplicate (appends only what's missing).
+- Unresolvable tracks are skipped and reported; the wrong track is never added.
+- The core app remains fully usable **without** connecting Spotify; export is invisible/disabled when `FEATURE_SPOTIFY_EXPORT` is off.
+- Tokens are stored server-side only and refresh automatically.

@@ -16,6 +16,7 @@ import DivePage from '@/pages/dive';
 import QueuePage from '@/pages/queue';
 import MetricsPage from '@/pages/metrics';
 import TimelinePage from '@/pages/timeline';
+import FeedPage from '@/pages/feed';
 import SignInPage from '@/pages/sign-in';
 import SignUpPage from '@/pages/sign-up';
 import NotFound from '@/pages/not-found';
@@ -122,6 +123,7 @@ function Router() {
         <Route path="/dive/:id" component={DivePage} />
         <Route path="/dive/:id/queue" component={QueuePage} />
         <Route path="/metrics" component={MetricsPage} />
+        <Route path="/feed" component={FeedPage} />
         <Route path="/timeline" component={TimelinePage} />
         <Route component={NotFound} />
       </Switch>

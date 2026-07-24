@@ -1,9 +1,10 @@
 import { Link, useLocation } from 'wouter';
 import { useUser } from '@clerk/react';
-import { Home, BookOpen, Activity, ScrollText } from 'lucide-react';
+import { Home, BookOpen, Activity, ScrollText, Rss } from 'lucide-react';
 
 const NAV_ITEMS = [
   { href: '/',          icon: Home,       label: 'Home'     },
+  { href: '/feed',      icon: Rss,        label: 'Feed'     },
   { href: '/timeline',  icon: ScrollText, label: 'Timeline' },
   { href: '/portrait',  icon: BookOpen,   label: 'Portrait' },
   { href: '/metrics',   icon: Activity,   label: 'Metrics'  },

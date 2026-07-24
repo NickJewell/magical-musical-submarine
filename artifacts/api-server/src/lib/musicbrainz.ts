@@ -326,7 +326,8 @@ interface LastFmSearchResponse {
 export async function searchMusicBrainz(
   query: string,
   type: "track" | "album" | "artist" = "track",
-  page = 1
+  page = 1,
+  timeoutMs = MB_REQUEST_TIMEOUT_MS
 ): Promise<Array<{ mbid: string; type: "track" | "album" | "artist"; title: string; artist: string; year: number | null; release: string | null; disambiguation: string | null; score: number }>> {
   const encoded = encodeURIComponent(query);
 
@@ -336,7 +337,7 @@ export async function searchMusicBrainz(
       const lfUrl =
         `${LASTFM_BASE}/?method=track.search&track=${encoded}` +
         `&api_key=${LASTFM_KEY}&format=json&limit=10&page=${page}`;
-      const lfData = await httpGet<LastFmSearchResponse>(lfUrl, {});
+      const lfData = await httpGet<LastFmSearchResponse>(lfUrl, { timeoutMs });
       const tracks = lfData.results?.trackmatches?.track ?? [];
 
       type Candidate = { mbid: string; title: string; artist: string };
@@ -355,7 +356,7 @@ export async function searchMusicBrainz(
               `recording:"${c.title}" AND artist:"${c.artist}"`
             );
             const mbUrl = `${MB_BASE}/recording?query=${q}&limit=1&fmt=json`;
-            const mbData = await httpGet<MBSearchResponse>(mbUrl, {});
+            const mbData = await httpGet<MBSearchResponse>(mbUrl, { timeoutMs });
             const rec = mbData.recordings?.[0];
             if (rec) c.mbid = rec.id;
           })
@@ -378,7 +379,7 @@ export async function searchMusicBrainz(
 
     // Fallback: MusicBrainz text search (no popularity order)
     const url = `${MB_BASE}/recording?query=${encoded}&limit=10&offset=${(page - 1) * 10}&fmt=json`;
-    const data = await httpGet<MBSearchResponse>(url, {});
+    const data = await httpGet<MBSearchResponse>(url, { timeoutMs });
     return (data.recordings ?? []).map((r) => ({
       mbid: r.id,
       type: "track" as const,
@@ -393,7 +394,7 @@ export async function searchMusicBrainz(
 
   if (type === "album") {
     const url = `${MB_BASE}/release-group?query=${encoded}&limit=10&offset=${(page - 1) * 10}&fmt=json`;
-    const data = await httpGet<MBSearchResponse>(url, {});
+    const data = await httpGet<MBSearchResponse>(url, { timeoutMs });
     return (data["release-groups"] ?? []).map((r) => ({
       mbid: r.id,
       type: "album" as const,
@@ -409,7 +410,7 @@ export async function searchMusicBrainz(
   // artist search
   const url = `${MB_BASE}/artist?query=${encoded}&limit=10&offset=${(page - 1) * 10}&fmt=json`;
   interface MBArtistSearch { artists?: Array<{ id: string; name: string; score: number; disambiguation?: string }> }
-  const data = await httpGet<MBArtistSearch>(url, {});
+  const data = await httpGet<MBArtistSearch>(url, { timeoutMs });
   return (data.artists ?? []).map((a) => ({
     mbid: a.id,
     type: "artist" as const,

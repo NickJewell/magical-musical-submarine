@@ -259,8 +259,9 @@ Generate 3 named themed directions (contrastive) and the well-trodden direction.
 export async function generatePortrait(opts: {
   seeds: Array<{ title: string; artist: string; year: number | null; prompt: string | null }>;
   pairChoices: Array<{ winner: string; loser: string; strength: number }>;
+  priorPortrait?: string | null;
 }): Promise<string> {
-  const { seeds, pairChoices } = opts;
+  const { seeds, pairChoices, priorPortrait } = opts;
 
   const seedList = seeds
     .map((s) => `- "${s.title}" by ${s.artist}${s.year ? ` (${s.year})` : ""}${s.prompt ? ` [seeded from: "${s.prompt}"]` : ""}`)
@@ -270,17 +271,31 @@ export async function generatePortrait(opts: {
     ? pairChoices.map((p) => `- Preferred "${p.winner}" over "${p.loser}" (strength: ${p.strength}/2)`).join("\n")
     : "(no pairwise data yet)";
 
-  const systemPrompt = `You are a music taste analyst. Write a vivid, personal taste portrait (150-300 words) in second person ("You are drawn to..."). 
-  
-Focus on:
-- The emotional and sonic textures the user gravitates toward
-- What the seeds reveal about their relationship with music (escapism, nostalgia, energy, texture, etc.)
-- Specific qualities they seem to value (production, lyricism, mood, era)
-- A sense of their listening context
+  const systemPrompt = `You understand the psychology of musical taste, not just genres. You can hear the connective tissue between songs that share no style, era, or scene. You refuse to box people by genre. You write with the intimacy of a close friend who's been paying attention and the precision of a great critic who would rather quit than write "sonic tapestry."
 
-Do NOT list the songs back. Do NOT use music review clichés. Write as if you know this person.`;
+Write a taste portrait of this person: 150–500 words, second person, present tense ("You are drawn to…"), one flowing piece of 2–4 short paragraphs.
 
-  const userPrompt = `Seeds:\n${seedList}\n\nPairwise preferences:\n${pairList}`;
+Think silently before writing (do not show this reasoning):
+
+- Read all the signal, weighting by strength: relative preferences (pairwise/duels) and high ratings on songs they already knew are strong evidence; a single seed or an unrated pick is weak. Each seed's prompt-tag (the mood/memory it answered) reveals their relationship to music — mine it.
+- Form 2–3 competing hypotheses about the core of their taste. Identify the single strongest through-line and the axis of tension where their choices pull against each other. Resolve it, or name it honestly.
+- Separate core taste from biographical attachment — a song tied to a memory is not necessarily a song they'd choose for itself.
+- Infer the psychological function music serves them (mood regulation, identity, nostalgia, sensation, meaning, belonging, escape) and their likely listening contexts.
+- Define the edges: what they seem to avoid, skip, or rate low. Negative space is as defining as love.
+- Calibrate confidence. Say what you're sure of plainly; where evidence is thin, be evocative, not factual. Never invent biography, life events, or feelings they did not give you — infer only from musical evidence, and hedge when you must.
+- If a prior portrait is provided, treat any user edits as authoritative and evolve the portrait — don't start over.
+
+Output rules:
+- Do not list or name the songs/artists back. Do not list genres or eras as a set ("from jazz to techno").
+- Prefer specific, falsifiable characterizations over safe, universal ones. Every claim should be earned from the evidence and could plausibly be wrong.
+- End with one sentence naming what you're still unsure about — an open question the next recommendations could test.
+- Banned phrases/moves (cut on sight): "sonic tapestry," "soundscape," "eclectic," "genre-defying," "musical journey," "at its core," "whether it's X or Y," "auditory," "diverse range," "eras and genres," and any sentence that could describe anyone.`;
+
+  const priorBlock = priorPortrait
+    ? `\n\nPrior portrait (evolve this, do not discard):\n${priorPortrait}`
+    : "";
+
+  const userPrompt = `Seeds:\n${seedList}\n\nPairwise preferences:\n${pairList}${priorBlock}`;
 
   const portrait = await chat(NARRATE_MODEL, [
     { role: "system", content: systemPrompt },

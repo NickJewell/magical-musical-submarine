@@ -160,6 +160,7 @@ router.post("/portrait/generate", async (req, res): Promise<void> => {
       prompt: s.prompt ?? null,
     })),
     pairChoices,
+    priorPortrait: latest?.text ?? null,
   });
 
   const nextVersion = latest ? latest.version + 1 : 1;

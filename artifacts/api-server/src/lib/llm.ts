@@ -103,10 +103,12 @@ export async function propose(opts: {
     ? "\n- IMPORTANT: A previous attempt with obscure picks failed verification. Suggest LESS OBSCURE artists — prefer moderately well-known to widely known acts that are more likely to exist in music databases."
     : "";
 
-  const systemPrompt = `You are a music recommendation assistant. Generate track candidates that fit the user's taste and the chosen direction.
+  const systemPrompt = `You are a music recommendation assistant. Generate individual track candidates that fit the user's taste and the chosen direction.
 
 CRITICAL RULES:
 - Output ONLY valid JSON matching the schema. No prose, no markdown.
+- Every candidate MUST be a specific individual track (song), never an album or EP title.
+- If you want to highlight an artist's album, pick the single best track from it instead.
 - The well-trodden artists are: ${wellTroddenList || "none identified"}. Steer AWAY from these for the main direction.
 - Include likely_known: "low" for genuinely obscure picks, "medium" for moderately known, "high" for widely known.
 - Generate ${count} candidates (we will validate and may need extras).${broaderHint}`;
@@ -120,7 +122,7 @@ ${recap || "(first dive — no recap yet)"}
 Chosen direction: "${directionLabel}"
 Direction rationale: ${directionRationale}
 
-Generate ${count} track/album candidates that fit this direction and this user's taste. Steer away from the well-trodden artists.`;
+Generate ${count} individual track candidates that fit this direction and this user's taste. Each must be a specific song, not an album title. Steer away from the well-trodden artists.`;
 
   const schema = {
     type: "object",
@@ -132,7 +134,7 @@ Generate ${count} track/album candidates that fit this direction and this user's
           properties: {
             artist: { type: "string" },
             title: { type: "string" },
-            type: { type: "string", enum: ["track", "album"] },
+            type: { type: "string", enum: ["track"] },
             year_guess: { type: "number" },
             rationale: { type: "string" },
             likely_known: { type: "string", enum: ["low", "medium", "high"] },
@@ -321,6 +323,7 @@ STRICT RULES:
 - Only assert facts present in the verified metadata supplied below. Do NOT invent release dates, label names, personnel, or collaborations not listed.
 - When MusicBrainz relationships support a specific claim ("produced by X", "same label as Y"), make it — but only then.
 - Spend the words on: why this fits THIS user (cite their portrait and recent ratings), what to listen for / where to enter the track, emotional and craft texture.
+- You may briefly suggest other tracks from the same album as a natural next step, but the recommendation itself is always this single track.
 - If metadata is sparse, spend extra words on taste-connection and listening guidance instead of invented facts.
 - Write one continuous piece — no headers, no bullets.`;
 

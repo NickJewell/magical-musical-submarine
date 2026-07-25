@@ -7,7 +7,7 @@
 import { logger } from "./logger";
 
 const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY;
-const PROPOSE_MODEL = process.env.OPENROUTER_PROPOSE_MODEL ?? "deepseek/deepseek-chat";
+const PROPOSE_MODEL = process.env.OPENROUTER_PROPOSE_MODEL ?? "moonshotai/kimi-k2";
 const NARRATE_MODEL = process.env.OPENROUTER_NARRATE_MODEL ?? "meta-llama/llama-3.3-70b-instruct";
 const BASE_URL = "https://openrouter.ai/api/v1/chat/completions";
 

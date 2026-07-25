@@ -254,7 +254,9 @@ export async function resolveLinks(
     if (spotifyTrackId || youtubeVideoId) {
       if (!artworkUrl) {
         fetchItunesData(artist, title)
-          .then(({ artworkUrl: url }) => url && cacheEmbedIds(mbid, null, null, url))
+          .then(({ artworkUrl: url }) => {
+            if (url) void cacheEmbedIds(mbid, null, null, url);
+          })
           .catch(() => null);
       }
       return {

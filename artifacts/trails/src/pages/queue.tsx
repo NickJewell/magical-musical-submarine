@@ -54,6 +54,7 @@ function QueueContent({ userId, diveId, onNavigate }: { userId: number, diveId: 
       );
       return () => clearTimeout(t);
     }
+    return undefined;
   }, [ratedCount, userId, queryClient]);
 
   const mutateRef = useRef(getRecommendations.mutate);

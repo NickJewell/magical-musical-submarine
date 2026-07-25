@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import { useParams, useLocation } from 'wouter';
 import {
   useLoadDive, useLoadRecap, useGetDirections, useChooseStep, useGetTastePair,
-  getLoadDiveQueryKey, getLoadRecapQueryKey,
+  getLoadDiveQueryKey, getLoadRecapQueryKey, getGetTastePairQueryKey,
   type Focus,
 } from '@workspace/api-client-react';
 import { useLocalUser } from '@/lib/useLocalUser';
@@ -48,7 +48,7 @@ function DiveContent({ userId, diveId, onNavigate }: { userId: number, diveId: n
 
   const { data: tastePair } = useGetTastePair(
     { userId },
-    { query: { enabled: showPairwise && !!userId } }
+    { query: { enabled: showPairwise && !!userId, queryKey: getGetTastePairQueryKey({ userId }) } }
   );
 
   const [directionsFailed, setDirectionsFailed] = useState(false);

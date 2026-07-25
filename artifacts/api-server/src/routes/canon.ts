@@ -58,7 +58,7 @@ const GENRE_ERA_BATCHES: Array<{ genre: string; era: string; region?: string; co
 ];
 
 async function resolveCandidate(
-  candidate: { title: string; artist: string; year?: number | null; genre?: string; era?: number | null; region?: string | null },
+  candidate: { title: string; artist: string; year?: number | null; genre?: string | null; era?: number | null; region?: string | null },
   batchGenre: string,
   batchRegion?: string,
 ): Promise<void> {
@@ -72,7 +72,7 @@ async function resolveCandidate(
 
     // Resolve entity (caches in resolved_entities)
     const entity = await resolve(
-      { type: "track", mbid: top.mbid, title: top.title, artist: top.artist },
+      { type: "track", title: top.title, artist: top.artist },
       10000,
     );
     if (!entity) return;

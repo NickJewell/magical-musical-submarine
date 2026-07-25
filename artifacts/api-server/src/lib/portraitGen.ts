@@ -58,7 +58,7 @@ async function loadRecentRatings(userId: number, limit = 30) {
     .select()
     .from(tasteEventsTable)
     .where(eq(tasteEventsTable.userId, userId))
-    .orderBy(desc(tasteEventsTable.createdAt))
+    .orderBy(desc(tasteEventsTable.ts))
     .limit(limit * 3); // overfetch, filter below
 
   const ratingEvents = events.filter((e) => e.kind === "rating").slice(0, limit);
@@ -93,7 +93,7 @@ export interface RebuildResult {
 
 export async function rebuildPortrait(userId: number, { force = false } = {}): Promise<RebuildResult | null> {
   const seeds = await db.select().from(seedsTable).where(eq(seedsTable.userId, userId));
-  if (seeds.length === 0) return; // nothing to portrait yet
+  if (seeds.length === 0) return null; // nothing to portrait yet
 
   const pairChoices    = await loadPairChoices(userId, seeds);
   const recentRatings  = await loadRecentRatings(userId);

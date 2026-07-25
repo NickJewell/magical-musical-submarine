@@ -5,7 +5,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import {
   useGetState, useCreateDive, useGetTastePair,
   useGetPortrait, useUpdatePortrait, useGeneratePortrait,
-  getGetStateQueryKey, getGetPortraitQueryKey,
+  getGetStateQueryKey, getGetPortraitQueryKey, getGetTastePairQueryKey,
   type AppState,
 } from '@workspace/api-client-react';
 import { useLocalUser } from '@/lib/useLocalUser';
@@ -113,7 +113,7 @@ function HomeContent({ userId, onNavigate }: { userId: number; onNavigate: (path
   const createDive = useCreateDive();
   const { data: tastePair } = useGetTastePair(
     { userId },
-    { query: { enabled: showPairwise && !pairwiseDone && !!userId && !!state?.onboarded } }
+    { query: { enabled: showPairwise && !pairwiseDone && !!userId && !!state?.onboarded, queryKey: getGetTastePairQueryKey({ userId }) } }
   );
 
   // Portrait state

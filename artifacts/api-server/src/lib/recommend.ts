@@ -304,6 +304,7 @@ async function buildWellTroddenRec(opts: {
   year: number | null;
   narrativeText: string;
   linksJson: unknown;
+  artworkUrl: string | null;
   arm: string;
   likelyKnown: string;
 }> {
@@ -362,6 +363,11 @@ async function buildWellTroddenRec(opts: {
       wtTitle  = seeds[0]?.title  ?? "a popular track";
     }
   }
+
+  // By this point both are always set; coerce for the type checker and as a
+  // final safety net.
+  wtTitle = wtTitle ?? "a popular track";
+  wtArtist = wtArtist ?? "Unknown artist";
 
   const narrative =
     `The well-trodden road: "${wtTitle}" by ${wtArtist} is the obvious conventional pick. ` +

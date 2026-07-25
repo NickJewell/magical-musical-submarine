@@ -126,6 +126,10 @@ const LINKS_STUB = {
   youtube: "https://youtube.com/watch?v=x",
   appleMusic: null,
   source: "odesli" as const,
+  spotifyTrackId: null,
+  youtubeVideoId: null,
+  deezerId: null,
+  artworkUrl: null,
 };
 
 /** The inserted row shape recommend() expects back from db.insert().returning() */

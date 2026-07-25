@@ -1,11 +1,12 @@
 import { Link, useLocation } from 'wouter';
 import { useUser } from '@clerk/react';
-import { Home, BookOpen, Activity, ScrollText, Rss } from 'lucide-react';
+import { Home, BookOpen, Activity, ScrollText, Rss, Trophy } from 'lucide-react';
 
 const NAV_ITEMS = [
   { href: '/',          icon: Home,       label: 'Home'     },
   { href: '/feed',      icon: Rss,        label: 'Feed'     },
   { href: '/timeline',  icon: ScrollText, label: 'Timeline' },
+  { href: '/rankings',  icon: Trophy,     label: 'Rankings' },
   { href: '/portrait',  icon: BookOpen,   label: 'Portrait' },
   { href: '/metrics',   icon: Activity,   label: 'Metrics'  },
 ];
@@ -36,14 +37,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
       </main>
 
       {isSignedIn && (
-        <nav className="fixed bottom-0 left-0 right-0 h-16 bg-background/90 backdrop-blur-md border-t border-border/60 z-20 flex items-center justify-around px-6">
+        <nav className="fixed bottom-0 left-0 right-0 h-16 bg-background/90 backdrop-blur-md border-t border-border/60 z-20 flex items-center justify-around px-2">
           {NAV_ITEMS.map(({ href, icon: Icon, label }) => {
             const active = href === '/' ? location === '/' : location.startsWith(href);
             return (
               <Link
                 key={href}
                 href={href}
-                className={`flex flex-col items-center gap-0.5 px-4 py-1.5 rounded-xl transition-colors ${
+                className={`flex flex-col items-center gap-0.5 px-2.5 py-1.5 rounded-xl transition-colors ${
                   active ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
                 }`}
               >

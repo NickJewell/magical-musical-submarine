@@ -178,12 +178,45 @@ export async function directions(opts: {
   recap: string;
   seeds: Array<{ title: string; artist: string }>;
   similarArtists: string[];
+  focus?: { kind: string; label: string; artist?: string | null } | null;
 }): Promise<DirectionsResult> {
-  const { portraitText, recap, seeds, similarArtists } = opts;
+  const { portraitText, recap, seeds, similarArtists, focus } = opts;
   const wellTroddenList = similarArtists.slice(0, 10).join(", ");
   const wellTroddenTop = similarArtists[0] ?? "a popular similar artist";
 
-  const systemPrompt = `You are a music taste analyst. Given a user's taste profile, generate 3 distinct exploration directions — each a named, themed path into new music.
+  // Two modes:
+  // - Focused dive: analyze the chosen selection ALONE and radiate three
+  //   targeted paths from it (portrait deliberately ignored for novelty).
+  // - Taste dive: the original portrait-driven exploration.
+  let systemPrompt: string;
+  let userPrompt: string;
+
+  if (focus) {
+    const focusDesc =
+      focus.kind === "genre" || focus.kind === "subgenre"
+        ? `the ${focus.kind} "${focus.label}"`
+        : focus.kind === "artist"
+          ? `the artist ${focus.label}`
+          : `"${focus.label}"${focus.artist ? ` by ${focus.artist}` : ""} (a ${focus.kind})`;
+
+    systemPrompt = `You are a music taste analyst and a deep genre cartographer. The user has picked a single starting point and wants to explore OUTWARD from it. Analyze that starting point on its own terms — its lineage, its scenes, its adjacent traditions, the tensions inside it — and chart three distinct paths into music they probably haven't heard.
+
+CRITICAL RULES:
+- Output ONLY valid JSON matching the schema.
+- Anchor everything on the chosen starting point. Do NOT rely on any prior profile of the user — treat this as a fresh expedition from this one selection.
+- The 3 directions must be genuinely CONTRASTIVE with each other: e.g. one deeper into the roots/lineage, one into a sideways-adjacent scene, one into a bolder reinterpretation or descendant. Cover real ground — reward curiosity, not the obvious.
+- Each direction needs a vivid, evocative label (3-5 words) and a 1-sentence rationale that names what connects it to the starting point AND how it diverges.
+- The hypothesis should be a sharp, specific read on what makes this starting point tick and where the interesting exits are.
+- The well_trodden direction is the conventional pick from here — just name the obvious closely-associated artist.`;
+
+    userPrompt = `Starting point: ${focusDesc}
+
+Closely associated artists (from Last.fm — the well-trodden neighborhood to push past): ${wellTroddenList || "(none found)"}
+Well-trodden reference (nearest obvious pick): ${wellTroddenTop}
+
+Analyze this starting point and generate 3 named, contrastive themed directions that radiate outward from it, plus the well-trodden direction. Ignore any prior taste profile — explore from this selection alone.`;
+  } else {
+    systemPrompt = `You are a music taste analyst. Given a user's taste profile, generate 3 distinct exploration directions — each a named, themed path into new music.
 
 CRITICAL RULES:
 - Output ONLY valid JSON matching the schema.
@@ -191,8 +224,8 @@ CRITICAL RULES:
 - Each direction needs a vivid, evocative label (3-5 words) and a 1-sentence rationale.
 - The well_trodden direction is the conventional pick — just name the obvious similar artist.`;
 
-  const seedList = seeds.map((s) => `"${s.title}" by ${s.artist}`).join(", ");
-  const userPrompt = `User seeds: ${seedList}
+    const seedList = seeds.map((s) => `"${s.title}" by ${s.artist}`).join(", ");
+    userPrompt = `User seeds: ${seedList}
 
 Taste portrait:
 ${portraitText}
@@ -203,6 +236,7 @@ ${recap || "(no prior dives)"}
 Well-trodden reference (top Last.fm similar): ${wellTroddenTop}
 
 Generate 3 named themed directions (contrastive) and the well-trodden direction.`;
+  }
 
   const schema = {
     type: "object",

@@ -300,7 +300,7 @@ router.post("/directions", async (req, res): Promise<void> => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const { userId, diveId } = parsed.data;
+  const { userId, diveId, focus } = parsed.data;
 
   // Ownership check: diveId must belong to userId
   const [dirDive] = await db.select().from(divesTable).where(eq(divesTable.id, diveId)).limit(1);
@@ -313,7 +313,7 @@ router.post("/directions", async (req, res): Promise<void> => {
     return;
   }
 
-  const result = await directions({ userId, diveId });
+  const result = await directions({ userId, diveId, focus: focus ?? null });
   res.json(result);
 });
 

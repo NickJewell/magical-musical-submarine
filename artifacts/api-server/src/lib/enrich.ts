@@ -93,6 +93,28 @@ async function lastfmTopTags(artist: string): Promise<string[]> {
   }
 }
 
+async function lastfmTagTopArtists(tag: string): Promise<SimilarArtist[]> {
+  if (!LASTFM_KEY) return [];
+  const url =
+    `${LASTFM_BASE}/?method=tag.gettopartists&tag=${encodeURIComponent(tag)}` +
+    `&api_key=${LASTFM_KEY}&format=json&limit=20`;
+  try {
+    interface LFMTagArtistsResp {
+      topartists?: { artist?: Array<{ name: string }> };
+    }
+    const data = await httpGet<LFMTagArtistsResp>(url, {
+      cacheKey: `lfm:tagartists:${tag.toLowerCase()}`,
+      cacheTtlMs: 7 * 24 * 60 * 60 * 1000,
+    });
+    // tag.gettopartists is rank-ordered; synthesize a descending match score.
+    const artists = data.topartists?.artist ?? [];
+    return artists.map((a, i) => ({ name: a.name, match: 1 - i / Math.max(artists.length, 1) }));
+  } catch (err) {
+    logger.warn({ err, tag }, "Last.fm tag.gettopartists failed");
+    return [];
+  }
+}
+
 // ---- ListenBrainz fallback ----
 
 async function lbSimilarArtists(artistMbid: string): Promise<SimilarArtist[]> {
@@ -172,4 +194,50 @@ export async function enrichFromSeeds(
   const wellTroddenArtist = similarArtists.length > 0 ? similarArtists[0].name : null;
 
   return { similarArtists, similarTracks, tags, wellTroddenArtist };
+}
+
+/** A user-chosen starting point for a focused dive. */
+export interface Focus {
+  kind: "genre" | "subgenre" | "artist" | "album" | "track";
+  label: string;
+  artist?: string | null;
+  mbid?: string | null;
+}
+
+/**
+ * Enrich from a single chosen focus rather than the user's seeds.
+ * - genre/subgenre → Last.fm tag top artists (the tag itself is the anchor tag).
+ * - artist          → similar artists + that artist's top tags.
+ * - album/track     → the performing artist's similar artists (+ similar tracks
+ *                     for a track focus) + top tags.
+ */
+export async function enrichFromFocus(focus: Focus): Promise<EnrichResult> {
+  if (focus.kind === "genre" || focus.kind === "subgenre") {
+    const similarArtists = await lastfmTagTopArtists(focus.label);
+    return {
+      similarArtists,
+      similarTracks: [],
+      tags: [focus.label],
+      wellTroddenArtist: similarArtists[0]?.name ?? null,
+    };
+  }
+
+  // artist / album / track — anchor on the performing artist.
+  const anchorArtist = focus.artist?.trim() || focus.label;
+  const anchorTrack = focus.kind === "track" ? focus.label : undefined;
+
+  const [similarArtists, similarTracks, tags] = await Promise.all([
+    lastfmSimilarArtists(anchorArtist),
+    anchorTrack
+      ? lastfmSimilarTracks(anchorArtist, anchorTrack)
+      : Promise.resolve<SimilarTrack[]>([]),
+    lastfmTopTags(anchorArtist),
+  ]);
+
+  return {
+    similarArtists,
+    similarTracks,
+    tags,
+    wellTroddenArtist: similarArtists[0]?.name ?? null,
+  };
 }

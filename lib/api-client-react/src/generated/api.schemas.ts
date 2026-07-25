@@ -200,10 +200,41 @@ export interface Direction {
   isWellTrodden: boolean;
 }
 
+export type FocusKind = typeof FocusKind[keyof typeof FocusKind];
+
+
+export const FocusKind = {
+  genre: 'genre',
+  subgenre: 'subgenre',
+  artist: 'artist',
+  album: 'album',
+  track: 'track',
+} as const;
+
+/**
+ * An optional starting point for a dive. When present, directions are generated from this selection alone rather than the user's portrait.
+ */
+export interface Focus {
+  kind: FocusKind;
+  /** The primary display label (genre name, artist name, album/track title). */
+  label: string;
+  /**
+     * For album/track focuses, the performing artist.
+     * @nullable
+     */
+  artist?: string | null;
+  /**
+     * MusicBrainz id when the selection came from a search result.
+     * @nullable
+     */
+  mbid?: string | null;
+}
+
 export interface StoredDirections {
   hypothesis: string;
   directions: Direction[];
   wellTroddenDirection: Direction;
+  focus?: Focus;
 }
 
 export type StoredLinksSource = typeof StoredLinksSource[keyof typeof StoredLinksSource];
@@ -322,6 +353,7 @@ export interface DiveDetail {
 export interface DirectionsInput {
   userId: number;
   diveId: number;
+  focus?: Focus;
 }
 
 export interface DirectionsResponse {

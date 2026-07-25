@@ -779,6 +779,8 @@ components:
             $ref: "#/components/schemas/Direction"
         wellTroddenDirection:
           $ref: "#/components/schemas/Direction"
+        focus:
+          $ref: "#/components/schemas/Focus"
       required: [hypothesis, directions, wellTroddenDirection]
 
     # Stored links as flat serializable shape
@@ -858,6 +860,26 @@ components:
           type: boolean
       required: [label, rationale, isWellTrodden]
 
+    Focus:
+      type: object
+      description: >-
+        An optional starting point for a dive. When present, directions are
+        generated from this selection alone rather than the user's portrait.
+      properties:
+        kind:
+          type: string
+          enum: [genre, subgenre, artist, album, track]
+        label:
+          type: string
+          description: The primary display label (genre name, artist name, album/track title).
+        artist:
+          type: ["string", "null"]
+          description: For album/track focuses, the performing artist.
+        mbid:
+          type: ["string", "null"]
+          description: MusicBrainz id when the selection came from a search result.
+      required: [kind, label]
+
     DirectionsInput:
       type: object
       properties:
@@ -865,6 +887,8 @@ components:
           type: integer
         diveId:
           type: integer
+        focus:
+          $ref: "#/components/schemas/Focus"
       required: [userId, diveId]
 
     DirectionsResponse:

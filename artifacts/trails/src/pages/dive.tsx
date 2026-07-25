@@ -1,14 +1,16 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams, useLocation } from 'wouter';
-import { 
+import {
   useLoadDive, useLoadRecap, useGetDirections, useChooseStep, useGetTastePair,
-  getLoadDiveQueryKey, getLoadRecapQueryKey 
+  getLoadDiveQueryKey, getLoadRecapQueryKey,
+  type Focus,
 } from '@workspace/api-client-react';
 import { useLocalUser } from '@/lib/useLocalUser';
 import { Button } from '@/components/ui/button';
-import { Loader2, ArrowRight } from 'lucide-react';
+import { Loader2, ArrowRight, Compass, X } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { PairwiseSlider } from '@/components/PairwiseSlider';
+import { FocusPicker } from '@/components/FocusPicker';
 
 export default function DivePage() {
   const { id: diveIdStr } = useParams();
@@ -36,6 +38,11 @@ function DiveContent({ userId, diveId, onNavigate }: { userId: number, diveId: n
   const [directionsReady, setDirectionsReady] = useState(false);
   const [showPairwise] = useState(() => Math.random() < 0.5);
   const [pairwiseDone, setPairwiseDone] = useState(false);
+
+  // Focused dive: an optional user-chosen starting point that regenerates the
+  // three paths from that selection alone instead of the user's portrait.
+  const [focus, setFocus] = useState<Focus | null>(null);
+  const [showFocus, setShowFocus] = useState(false);
 
   const getDirections = useGetDirections();
   const chooseStep = useChooseStep();
@@ -67,6 +74,30 @@ function DiveContent({ userId, diveId, onNavigate }: { userId: number, diveId: n
     getDirections.reset();
   };
 
+  // Regenerate directions for a chosen focus (or clear it to return to taste-based).
+  const runDirections = (focusArg: Focus | null) => {
+    setDirectionsFailed(false);
+    setDirectionsReady(false);
+    getDirections.mutate(
+      { data: { userId, diveId, ...(focusArg ? { focus: focusArg } : {}) } },
+      {
+        onSuccess: () => setDirectionsReady(true),
+        onError: () => setDirectionsFailed(true),
+      },
+    );
+  };
+
+  const handlePickFocus = (f: Focus) => {
+    setFocus(f);
+    setShowFocus(false);
+    runDirections(f);
+  };
+
+  const handleClearFocus = () => {
+    setFocus(null);
+    runDirections(null);
+  };
+
   const { data: recap, isLoading: recapLoading } = useLoadRecap(
     { diveId, userId },
     { query: { enabled: !!dive && dive.steps.length > 1, queryKey: getLoadRecapQueryKey({ diveId, userId }) } }
@@ -81,7 +112,7 @@ function DiveContent({ userId, diveId, onNavigate }: { userId: number, diveId: n
           diveId,
           chosenDirection: label,
           hypothesisText: getDirections.data.hypothesis,
-          directionsJson: getDirections.data
+          directionsJson: { ...getDirections.data, ...(focus ? { focus } : {}) }
         }
       },
       {
@@ -135,6 +166,45 @@ function DiveContent({ userId, diveId, onNavigate }: { userId: number, diveId: n
       <div className="text-center space-y-2">
         <h1 className="text-sm font-mono text-muted-foreground uppercase tracking-widest">{dive?.name}</h1>
         {dive && <p className="text-xs text-muted-foreground/50">Depth: {dive.steps.length * 100}m</p>}
+      </div>
+
+      {/* Focused dive: start the three paths from a specific selection */}
+      <div>
+        {focus ? (
+          <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-primary/10 border border-primary/25">
+            <div className="min-w-0">
+              <p className="text-[10px] font-mono text-primary/70 uppercase tracking-widest">Diving from</p>
+              <p className="text-sm text-primary-foreground truncate">
+                {focus.label}
+                {focus.artist ? <span className="text-muted-foreground/60"> · {focus.artist}</span> : null}
+              </p>
+            </div>
+            <button
+              onClick={handleClearFocus}
+              disabled={getDirections.isPending}
+              className="shrink-0 flex items-center gap-1 text-xs text-muted-foreground/70 hover:text-muted-foreground disabled:opacity-50"
+            >
+              <X className="w-3.5 h-3.5" /> Clear
+            </button>
+          </div>
+        ) : showFocus ? (
+          <div className="p-4 rounded-2xl bg-secondary/20 border border-border/50 space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest">Start from something specific</h2>
+              <button onClick={() => setShowFocus(false)} className="text-muted-foreground/50 hover:text-muted-foreground">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <FocusPicker userId={userId} onPick={handlePickFocus} disabled={getDirections.isPending} />
+          </div>
+        ) : (
+          <button
+            onClick={() => setShowFocus(true)}
+            className="w-full flex items-center justify-center gap-2 text-sm text-muted-foreground/70 hover:text-primary transition-colors py-2"
+          >
+            <Compass className="w-4 h-4" /> Or start from a genre, artist, album, or track
+          </button>
+        )}
       </div>
 
       {recap && (

@@ -5,11 +5,11 @@
 
 import { db, seedsTable, portraitsTable, diveStepsTable } from "@workspace/db";
 import { eq, desc } from "drizzle-orm";
-import { enrichFromSeeds } from "./enrich";
+import { enrichFromSeeds, enrichFromFocus, type Focus } from "./enrich";
 import { directions as llmDirections } from "./llm";
 
-export async function directions(opts: { userId: number; diveId: number }) {
-  const { userId, diveId } = opts;
+export async function directions(opts: { userId: number; diveId: number; focus?: Focus | null }) {
+  const { userId, diveId, focus } = opts;
 
   // Get user's seeds
   const seeds = await db.select().from(seedsTable).where(eq(seedsTable.userId, userId));
@@ -42,21 +42,23 @@ export async function directions(opts: { userId: number; diveId: number }) {
           .join("; ")
       : "";
 
-  // Enrich with Last.fm similar artists
-  const enrichData = await enrichFromSeeds(
-    seeds.map((s) => ({ artist: s.artist, title: s.title }))
-  );
+  // Enrich either from the chosen focus (focused dive) or the user's seeds.
+  const enrichData = focus
+    ? await enrichFromFocus(focus)
+    : await enrichFromSeeds(seeds.map((s) => ({ artist: s.artist, title: s.title })));
 
   const similarArtistNames = enrichData.similarArtists
     .slice(0, 15)
     .map((a) => a.name);
 
-  // Call LLM
+  // Call LLM. On a focused dive we pass the focus through and the LLM
+  // generates paths from that selection alone (portrait ignored).
   const result = await llmDirections({
     portraitText,
     recap,
     seeds: seeds.map((s) => ({ title: s.title, artist: s.artist })),
     similarArtists: similarArtistNames,
+    focus: focus ?? null,
   });
 
   return result;

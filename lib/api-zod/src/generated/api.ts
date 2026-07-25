@@ -306,7 +306,13 @@ export const LoadDiveResponse = zod.object({
   "label": zod.string(),
   "rationale": zod.string(),
   "isWellTrodden": zod.boolean()
-})
+}),
+  "focus": zod.object({
+  "kind": zod.enum(['genre', 'subgenre', 'artist', 'album', 'track']),
+  "label": zod.string().describe('The primary display label (genre name, artist name, album\/track title).'),
+  "artist": zod.string().nullish().describe('For album\/track focuses, the performing artist.'),
+  "mbid": zod.string().nullish().describe('MusicBrainz id when the selection came from a search result.')
+}).optional().describe('An optional starting point for a dive. When present, directions are generated from this selection alone rather than the user\'s portrait.')
 }),zod.null()]),
   "chosenDirection": zod.string().nullable(),
   "recommendations": zod.array(zod.object({
@@ -369,7 +375,13 @@ export const LoadRecapResponse = zod.object({
  */
 export const GetDirectionsBody = zod.object({
   "userId": zod.number(),
-  "diveId": zod.number()
+  "diveId": zod.number(),
+  "focus": zod.object({
+  "kind": zod.enum(['genre', 'subgenre', 'artist', 'album', 'track']),
+  "label": zod.string().describe('The primary display label (genre name, artist name, album\/track title).'),
+  "artist": zod.string().nullish().describe('For album\/track focuses, the performing artist.'),
+  "mbid": zod.string().nullish().describe('MusicBrainz id when the selection came from a search result.')
+}).optional().describe('An optional starting point for a dive. When present, directions are generated from this selection alone rather than the user\'s portrait.')
 })
 
 export const GetDirectionsResponse = zod.object({
@@ -406,7 +418,13 @@ export const ChooseStepBody = zod.object({
   "label": zod.string(),
   "rationale": zod.string(),
   "isWellTrodden": zod.boolean()
-})
+}),
+  "focus": zod.object({
+  "kind": zod.enum(['genre', 'subgenre', 'artist', 'album', 'track']),
+  "label": zod.string().describe('The primary display label (genre name, artist name, album\/track title).'),
+  "artist": zod.string().nullish().describe('For album\/track focuses, the performing artist.'),
+  "mbid": zod.string().nullish().describe('MusicBrainz id when the selection came from a search result.')
+}).optional().describe('An optional starting point for a dive. When present, directions are generated from this selection alone rather than the user\'s portrait.')
 })
 })
 
@@ -426,7 +444,13 @@ export const ChooseStepResponse = zod.object({
   "label": zod.string(),
   "rationale": zod.string(),
   "isWellTrodden": zod.boolean()
-})
+}),
+  "focus": zod.object({
+  "kind": zod.enum(['genre', 'subgenre', 'artist', 'album', 'track']),
+  "label": zod.string().describe('The primary display label (genre name, artist name, album\/track title).'),
+  "artist": zod.string().nullish().describe('For album\/track focuses, the performing artist.'),
+  "mbid": zod.string().nullish().describe('MusicBrainz id when the selection came from a search result.')
+}).optional().describe('An optional starting point for a dive. When present, directions are generated from this selection alone rather than the user\'s portrait.')
 }),zod.null()]),
   "chosenDirection": zod.string().nullable(),
   "recommendations": zod.array(zod.object({

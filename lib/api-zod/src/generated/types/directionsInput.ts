@@ -5,8 +5,10 @@
  * Trails — Magical Musical Submarine API
  * OpenAPI spec version: 0.1.0
  */
+import type { Focus } from './focus';
 
 export interface DirectionsInput {
   userId: number;
   diveId: number;
+  focus?: Focus;
 }

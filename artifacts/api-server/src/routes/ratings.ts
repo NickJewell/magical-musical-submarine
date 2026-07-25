@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
-import { db, ratingsTable, pathRatingsTable, tasteEventsTable, recommendationsTable, diveStepsTable, divesTable } from "@workspace/db";
-import { eq, desc, count } from "drizzle-orm";
+import { db, ratingsTable, pathRatingsTable, focusRatingsTable, tasteEventsTable, recommendationsTable, diveStepsTable, divesTable } from "@workspace/db";
+import { eq, desc, count, and } from "drizzle-orm";
 import { RateRecBody, RateStepBody } from "@workspace/api-zod";
 import { triggerPortraitRebuild } from "../lib/portraitGen";
 
@@ -141,6 +141,108 @@ router.post("/path-rate", async (req, res): Promise<void> => {
     diveStepId: pathRating.diveStepId,
     score: parseFloat(String(pathRating.score)),
     ratedAt: pathRating.ratedAt.toISOString(),
+  });
+});
+
+// GET /focus-rating — fetch an existing focus rating for a (userId, mbid) pair
+router.get("/focus-rating", async (req, res): Promise<void> => {
+  const userId = parseInt(String(req.query.userId ?? ""), 10);
+  const mbid = String(req.query.mbid ?? "").trim();
+
+  if (isNaN(userId) || !mbid) {
+    res.status(400).json({ error: "userId and mbid are required" });
+    return;
+  }
+
+  const [row] = await db
+    .select()
+    .from(focusRatingsTable)
+    .where(and(eq(focusRatingsTable.userId, userId), eq(focusRatingsTable.mbid, mbid)))
+    .orderBy(desc(focusRatingsTable.ratedAt))
+    .limit(1);
+
+  if (!row) {
+    res.json(null);
+    return;
+  }
+
+  res.json({
+    id: row.id,
+    userId: row.userId,
+    mbid: row.mbid,
+    title: row.title,
+    artist: row.artist,
+    listenState: row.listenState,
+    score: row.score != null ? parseFloat(String(row.score)) : null,
+    reviewText: row.reviewText ?? null,
+    ratedAt: row.ratedAt.toISOString(),
+  });
+});
+
+// POST /focus-rating — create or update a focus rating (upsert by userId + mbid)
+router.post("/focus-rating", async (req, res): Promise<void> => {
+  const { userId, mbid, title, artist, listenState, score, reviewText } = req.body as {
+    userId?: unknown; mbid?: unknown; title?: unknown; artist?: unknown;
+    listenState?: unknown; score?: unknown; reviewText?: unknown;
+  };
+
+  if (typeof userId !== "number" || typeof mbid !== "string" || !mbid.trim() ||
+      typeof title !== "string" || typeof artist !== "string" ||
+      typeof listenState !== "string" || !["listened", "skipped", "known"].includes(listenState)) {
+    res.status(400).json({ error: "userId, mbid, title, artist, and a valid listenState are required" });
+    return;
+  }
+
+  const parsedScore = score != null ? Number(score) : null;
+  if (parsedScore != null && ![1, 2, 3].includes(parsedScore)) {
+    res.status(400).json({ error: "score must be 1, 2, or 3" });
+    return;
+  }
+
+  // Upsert: delete any existing row for this (userId, mbid) then insert fresh.
+  await db
+    .delete(focusRatingsTable)
+    .where(and(eq(focusRatingsTable.userId, userId as number), eq(focusRatingsTable.mbid, mbid)));
+
+  const [row] = await db
+    .insert(focusRatingsTable)
+    .values({
+      userId: userId as number,
+      mbid,
+      title,
+      artist,
+      listenState,
+      score: parsedScore != null ? String(parsedScore) : null,
+      reviewText: typeof reviewText === "string" && reviewText.trim() ? reviewText.trim() : null,
+    })
+    .returning();
+
+  // Mirror to taste_events so the portrait pipeline sees it
+  await db.insert(tasteEventsTable).values({
+    userId: userId as number,
+    kind: "focus_rating",
+    payloadJson: { mbid, title, artist, listenState, score: parsedScore, reviewText: reviewText ?? null },
+  });
+
+  // Trigger portrait rebuild on every 3rd taste event (same cadence as rec ratings)
+  const [{ cnt }] = await db
+    .select({ cnt: count() })
+    .from(tasteEventsTable)
+    .where(eq(tasteEventsTable.userId, userId as number));
+  if (Number(cnt) > 0 && Number(cnt) % 3 === 0) {
+    triggerPortraitRebuild(userId as number);
+  }
+
+  res.status(201).json({
+    id: row.id,
+    userId: row.userId,
+    mbid: row.mbid,
+    title: row.title,
+    artist: row.artist,
+    listenState: row.listenState,
+    score: row.score != null ? parseFloat(String(row.score)) : null,
+    reviewText: row.reviewText ?? null,
+    ratedAt: row.ratedAt.toISOString(),
   });
 });
 

@@ -7,7 +7,7 @@ import {
 } from '@workspace/api-client-react';
 import { useLocalUser } from '@/lib/useLocalUser';
 import { Button } from '@/components/ui/button';
-import { Loader2, ArrowRight, Compass, X } from 'lucide-react';
+import { Loader2, ArrowRight, Compass, X, Star, RefreshCw } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { PairwiseSlider } from '@/components/PairwiseSlider';
 import { FocusPicker } from '@/components/FocusPicker';
@@ -189,21 +189,31 @@ function DiveContent({ userId, diveId, onNavigate }: { userId: number, diveId: n
       {/* Focused dive: start the three paths from a specific selection */}
       <div>
         {focus ? (
-          <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-primary/10 border border-primary/25">
-            <div className="min-w-0">
-              <p className="text-[10px] font-mono text-primary/70 uppercase tracking-widest">Diving from</p>
-              <p className="text-sm text-primary-foreground truncate">
-                {focus.label}
-                {focus.artist ? <span className="text-muted-foreground/60"> · {focus.artist}</span> : null}
-              </p>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-primary/10 border border-primary/25">
+              <div className="min-w-0">
+                <p className="text-[10px] font-mono text-primary/70 uppercase tracking-widest">Diving from</p>
+                <p className="text-sm text-primary-foreground truncate">
+                  {focus.label}
+                  {focus.artist ? <span className="text-muted-foreground/60"> · {focus.artist}</span> : null}
+                </p>
+              </div>
+              <button
+                onClick={handleClearFocus}
+                disabled={directionsLoading}
+                className="shrink-0 flex items-center gap-1 text-xs text-muted-foreground/70 hover:text-muted-foreground disabled:opacity-50"
+              >
+                <X className="w-3.5 h-3.5" /> Clear
+              </button>
             </div>
-            <button
-              onClick={handleClearFocus}
-              disabled={directionsLoading}
-              className="shrink-0 flex items-center gap-1 text-xs text-muted-foreground/70 hover:text-muted-foreground disabled:opacity-50"
-            >
-              <X className="w-3.5 h-3.5" /> Clear
-            </button>
+            {focus.kind === 'track' && focus.mbid && (
+              <FocusRatingWidget
+                userId={userId}
+                mbid={focus.mbid}
+                title={focus.label}
+                artist={focus.artist ?? ''}
+              />
+            )}
           </div>
         ) : showFocus ? (
           <div className="p-4 rounded-2xl bg-secondary/20 border border-border/50 space-y-4">
@@ -285,6 +295,137 @@ function DiveContent({ userId, diveId, onNavigate }: { userId: number, diveId: n
               </button>
             </div>
           )}
+
+          <div className="pt-2 text-center">
+            <button
+              onClick={() => runDirections(focus)}
+              disabled={chooseStep.isPending}
+              className="flex items-center gap-1.5 mx-auto text-xs text-muted-foreground/50 hover:text-muted-foreground/80 transition-colors"
+            >
+              <RefreshCw className="w-3.5 h-3.5" /> Try different paths
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---- Focus rating widget ----
+// Compact inline widget shown below the "Diving from" chip when the focus is a
+// track with a known MBID. Lets the user rate the starting point before they
+// explore from it, feeding an immediate taste signal without requiring a rec card.
+
+type ListenState = 'listened' | 'skipped' | 'known';
+
+interface FocusRatingData {
+  listenState: ListenState;
+  score: number | null;
+}
+
+function FocusRatingWidget({
+  userId, mbid, title, artist,
+}: {
+  userId: number;
+  mbid: string;
+  title: string;
+  artist: string;
+}) {
+  const [listenState, setListenState] = useState<ListenState | null>(null);
+  const [score, setScore] = useState<number | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  // Load any existing rating on mount
+  useEffect(() => {
+    fetch(`/api/focus-rating?userId=${userId}&mbid=${encodeURIComponent(mbid)}`, {
+      credentials: 'include',
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: FocusRatingData | null) => {
+        if (data) {
+          setListenState(data.listenState);
+          setScore(data.score);
+          setSaved(true);
+        }
+      })
+      .catch(() => {/* widget is optional — ignore errors */});
+  }, [userId, mbid]);
+
+  const submit = (state: ListenState, newScore: number | null) => {
+    setSaving(true);
+    fetch('/api/focus-rating', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId, mbid, title, artist, listenState: state, score: newScore }),
+    })
+      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+      .then(() => { setSaved(true); setSaving(false); })
+      .catch(() => setSaving(false));
+  };
+
+  const handleState = (state: ListenState) => {
+    setListenState(state);
+    setSaved(false);
+    submit(state, score);
+  };
+
+  const handleStar = (s: number) => {
+    if (!listenState) return;
+    setScore(s);
+    setSaved(false);
+    submit(listenState, s);
+  };
+
+  const showStars = listenState === 'listened' || listenState === 'known';
+
+  return (
+    <div className="px-3 py-3 rounded-xl bg-secondary/20 border border-border/40 space-y-3 animate-in fade-in duration-300">
+      <p className="text-[10px] font-mono text-muted-foreground/60 uppercase tracking-widest">
+        {saved ? 'Your rating ✓' : 'Rate this track'}
+      </p>
+
+      {/* Listen state */}
+      <div className="flex gap-1.5 bg-secondary/40 p-1 rounded-lg">
+        {(['listened', 'skipped', 'known'] as ListenState[]).map((state) => (
+          <button
+            key={state}
+            onClick={() => handleState(state)}
+            disabled={saving}
+            className={`flex-1 py-1.5 rounded-md text-[11px] font-medium transition-colors capitalize disabled:opacity-50 ${
+              listenState === state
+                ? 'bg-primary text-primary-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground hover:bg-secondary/60'
+            }`}
+          >
+            {state}
+          </button>
+        ))}
+      </div>
+
+      {/* Stars — only after listened / known */}
+      {showStars && (
+        <div className="flex items-center justify-between px-1 animate-in slide-in-from-top-2">
+          <span className="text-[11px] text-muted-foreground">Rating</span>
+          <div className="flex items-center gap-1.5">
+            {[1, 2, 3].map((star) => (
+              <button
+                key={star}
+                onClick={() => handleStar(star)}
+                disabled={saving}
+                className="transition-transform hover:scale-110 active:scale-95 disabled:opacity-50"
+              >
+                <Star
+                  className={`w-5 h-5 transition-colors ${
+                    score !== null && score >= star
+                      ? 'fill-primary text-primary'
+                      : 'text-muted-foreground/30 hover:text-muted-foreground/60'
+                  }`}
+                />
+              </button>
+            ))}
+          </div>
         </div>
       )}
     </div>

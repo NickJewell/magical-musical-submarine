@@ -10,3 +10,4 @@ export * from "./resolved_entities";
 export * from "./http_cache";
 export * from "./spotify";
 export * from "./canon";
+export * from "./elo";

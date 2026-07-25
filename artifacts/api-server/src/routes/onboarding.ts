@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { db, seedsTable, tasteEventsTable, recommendationsTable, ratingsTable, diveStepsTable, divesTable } from "@workspace/db";
 import { eq, desc, and, inArray } from "drizzle-orm";
 import { GetNextPairQueryParams, SubmitPairBody } from "@workspace/api-zod";
+import { applyComparison } from "../lib/elo";
 
 const router: IRouter = Router();
 
@@ -155,6 +156,9 @@ router.post("/pair", async (req, res): Promise<void> => {
     kind: "pair_choice",
     payloadJson: { aMbid, bMbid, result },
   });
+
+  // Update head-to-head ELO for both tracks (never throws).
+  await applyComparison({ userId, aMbid, bMbid, result });
 
   res.json({ ok: true });
 });

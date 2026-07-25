@@ -34,7 +34,8 @@ function FeedContent({ userId, onDone }: { userId: number; onDone: () => void })
   const [page, setPage]                 = useState(1);
   const [allResults, setAllResults]     = useState<SearchResult[]>([]);
   const [sessionAdded, setSessionAdded] = useState<SearchResult[]>([]);
-  const [justAdded, setJustAdded]       = useState<string | null>(null); // mbid flash
+  const [justAdded, setJustAdded]       = useState<string | null>(null); // resultKey flash
+  const [addError, setAddError]         = useState<string | null>(null);
   const [finishing, setFinishing]       = useState(false);
   const [portraitDone, setPortraitDone] = useState(false);
   const prevQueryRef = useRef('');
@@ -66,25 +67,35 @@ function FeedContent({ userId, onDone }: { userId: number; onDone: () => void })
   const addSeed        = useAddSeed();
   const generatePortrait = useGeneratePortrait();
 
-  const addedMbids = new Set(sessionAdded.map(r => r.mbid));
+  // Use a stable composite key for each result — empty-mbid (unverified) results
+  // fall back to title+artist so they don't all share '' as their dedup key.
+  const resultKey = (r: SearchResult) => r.mbid || `${r.title}__${r.artist}`;
+
+  const addedKeys  = new Set(sessionAdded.map(resultKey));
   const canLoadMore = !!pageResults && pageResults.length === 10 && !isFetching;
   const hasResults  = allResults.length > 0;
 
   const handleAdd = (r: SearchResult) => {
-    if (addedMbids.has(r.mbid) || addSeed.isPending) return;
+    const key = resultKey(r);
+    if (addedKeys.has(key) || addSeed.isPending) return;
+    setAddError(null);
     addSeed.mutate(
-      { data: { userId, mbid: r.mbid, type: 'track', title: r.title, artist: r.artist, year: r.year, prompt: null } },
+      { data: { userId, mbid: r.mbid, type: r.type === 'album' ? 'album' : 'track', title: r.title, artist: r.artist, year: r.year, prompt: null } },
       {
         onSuccess: () => {
           queryClient.invalidateQueries({ queryKey: getListSeedsQueryKey({ userId }) });
           setSessionAdded(prev => [r, ...prev]);
-          setJustAdded(r.mbid);
+          setJustAdded(key);
           setTimeout(() => setJustAdded(null), 1000);
           // Clear search so they're ready for the next track
           setQuery('');
           setAllResults([]);
           setPage(1);
           inputRef.current?.focus();
+        },
+        onError: () => {
+          setAddError("Couldn't save that track — please try again.");
+          setTimeout(() => setAddError(null), 3000);
         },
       }
     );
@@ -182,6 +193,9 @@ function FeedContent({ userId, onDone }: { userId: number; onDone: () => void })
           {isError && (
             <p className="text-center p-4 text-sm text-destructive">Search timed out — please try again.</p>
           )}
+          {addError && (
+            <p className="text-center p-3 text-sm text-destructive/80 animate-in fade-in">{addError}</p>
+          )}
           {!isError && isSearching && allResults.length === 0 && (
             <div className="text-center p-4">
               <Loader2 className="w-5 h-5 animate-spin mx-auto text-primary" />
@@ -189,11 +203,12 @@ function FeedContent({ userId, onDone }: { userId: number; onDone: () => void })
           )}
 
           {hasResults && allResults.map((r) => {
-            const added    = addedMbids.has(r.mbid);
-            const flashing = justAdded === r.mbid;
+            const key      = resultKey(r);
+            const added    = addedKeys.has(key);
+            const flashing = justAdded === key;
             return (
               <button
-                key={`${r.mbid}-${r.title}`}
+                key={key}
                 onClick={() => handleAdd(r)}
                 disabled={added || addSeed.isPending}
                 className={cn(
@@ -207,6 +222,9 @@ function FeedContent({ userId, onDone }: { userId: number; onDone: () => void })
                   <p className="font-semibold text-base text-foreground truncate leading-tight">{r.title}</p>
                   <p className="text-sm font-medium text-primary/90 truncate">{r.artist}</p>
                   {r.release && <p className="text-xs text-muted-foreground truncate">{r.release}</p>}
+                  {!r.verified && (
+                    <p className="text-[10px] font-mono text-amber-400/70 uppercase tracking-widest">unverified</p>
+                  )}
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   {r.year && (

@@ -8,6 +8,7 @@ import { Router, type IRouter } from "express";
 import { db, tasteEventsTable, seedsTable, resolvedEntitiesTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { getNextDuelPair, type Strategy } from "../lib/canonPool";
+import { applyComparison } from "../lib/elo";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
@@ -79,6 +80,9 @@ router.post("/duel", async (req, res): Promise<void> => {
       isDiscoveryCandidate: winnerMbid !== null && !winnerKnew,
     },
   });
+
+  // Update head-to-head ELO for both tracks (never throws).
+  await applyComparison({ userId, aMbid, bMbid, result });
 
   const promotions: string[] = [];
 

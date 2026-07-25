@@ -5,6 +5,17 @@
  * Trails — Magical Musical Submarine API
  * OpenAPI spec version: 0.1.0
  */
+export interface EloTrack {
+  mbid: string;
+  title: string;
+  artist: string;
+  rating: number;
+  matches: number;
+  wins: number;
+  losses: number;
+  draws: number;
+}
+
 export interface HealthStatus {
   status: string;
 }
@@ -526,6 +537,10 @@ export const ResolveLinksType = {
 } as const;
 
 export type GetMetricsParams = {
+userId: number;
+};
+
+export type GetEloParams = {
 userId: number;
 };
 

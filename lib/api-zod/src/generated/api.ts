@@ -623,3 +623,23 @@ export const GetMetricsResponse = zod.object({
 })
 
 
+/**
+ * @summary Get the user's tracks ranked by head-to-head ELO
+ */
+export const GetEloQueryParams = zod.object({
+  "userId": zod.coerce.number()
+})
+
+export const GetEloResponseItem = zod.object({
+  "mbid": zod.string(),
+  "title": zod.string(),
+  "artist": zod.string(),
+  "rating": zod.number(),
+  "matches": zod.number(),
+  "wins": zod.number(),
+  "losses": zod.number(),
+  "draws": zod.number()
+})
+export const GetEloResponse = zod.array(GetEloResponseItem)
+
+

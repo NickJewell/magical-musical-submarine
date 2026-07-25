@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { db, seedsTable, tasteEventsTable, recommendationsTable, ratingsTable, diveStepsTable, divesTable } from "@workspace/db";
 import { eq, desc, and, inArray } from "drizzle-orm";
 import { GetNextPairQueryParams, SubmitPairBody } from "@workspace/api-zod";
+import { applyComparison, getEloMap } from "../lib/elo";
 
 const router: IRouter = Router();
 
@@ -124,16 +125,32 @@ router.get("/taste-pair", async (req, res): Promise<void> => {
   const done = { done: true, aMbid: null, aTitle: null, aArtist: null, bMbid: null, bTitle: null, bArtist: null, pairIndex: null, totalPairs: null };
   if (candidates.length < 2) { res.json(done); return; }
 
-  // Shuffle and pick first unpaired pair
-  const shuffled = [...candidates].sort(() => Math.random() - 0.5);
-  let a: typeof candidates[0] | null = null;
-  let b: typeof candidates[0] | null = null;
-  outer: for (let i = 0; i < shuffled.length; i++) {
-    for (let j = i + 1; j < shuffled.length; j++) {
-      const key = `${shuffled[i].mbid}:${shuffled[j].mbid}`;
-      const rev = `${shuffled[j].mbid}:${shuffled[i].mbid}`;
-      if (!donePairs.has(key) && !donePairs.has(rev)) { a = shuffled[i]; b = shuffled[j]; break outer; }
+  // ELO-aware selection to converge rankings fast: attach each track's current
+  // rating + match count, anchor on the LEAST-compared track (it needs data
+  // most), and pair it with the closest-rated available partner (an uncertain
+  // outcome is the most informative comparison). Random tie-breaks keep it
+  // varied. Falls back to any unpaired pair once the informative ones run out.
+  const eloMap = await getEloMap(userId);
+  const withElo = candidates.map((c) => {
+    const e = eloMap.get(c.mbid);
+    return { ...c, rating: e?.rating ?? 1500, matches: e?.matches ?? 0 };
+  });
+  withElo.sort((x, y) => x.matches - y.matches || Math.random() - 0.5);
+
+  const isDone = (m1: string, m2: string) =>
+    donePairs.has(`${m1}:${m2}`) || donePairs.has(`${m2}:${m1}`);
+
+  let a: typeof withElo[0] | null = null;
+  let b: typeof withElo[0] | null = null;
+  for (const anchor of withElo) {
+    let best: typeof withElo[0] | null = null;
+    let bestGap = Infinity;
+    for (const other of withElo) {
+      if (other.mbid === anchor.mbid || isDone(anchor.mbid, other.mbid)) continue;
+      const gap = Math.abs(anchor.rating - other.rating);
+      if (gap < bestGap) { bestGap = gap; best = other; }
     }
+    if (best) { a = anchor; b = best; break; }
   }
 
   if (!a || !b) { res.json(done); return; }
@@ -155,6 +172,9 @@ router.post("/pair", async (req, res): Promise<void> => {
     kind: "pair_choice",
     payloadJson: { aMbid, bMbid, result },
   });
+
+  // Update head-to-head ELO for both tracks (never throws).
+  await applyComparison({ userId, aMbid, bMbid, result });
 
   res.json({ ok: true });
 });

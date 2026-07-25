@@ -27,6 +27,7 @@ vi.mock("@workspace/db", () => {
     seedsTable: table,
     portraitsTable: table,
     tasteEventsTable: table,
+    trackEloTable: table,
   };
 });
 
@@ -221,6 +222,7 @@ describe("POST /portrait/generate — cache hit", () => {
       .mockReturnValueOnce(buildSelectChain([]))
       .mockReturnValueOnce(buildSelectChain([{ cnt: RATING_COUNT }]))
       .mockReturnValueOnce(buildSelectChain([]))
+      .mockReturnValueOnce(buildSelectChain([])) // ELO signal (getEloSignal)
       .mockReturnValueOnce(buildSelectChain([newPortrait]));
 
     // insert returning the new portrait row
@@ -262,6 +264,7 @@ describe("POST /portrait/generate — cache hit", () => {
       .mockReturnValueOnce(buildSelectChain([]))
       .mockReturnValueOnce(buildSelectChain([{ cnt: RATING_COUNT }]))
       .mockReturnValueOnce(buildSelectChain([STALE_PORTRAIT]))
+      .mockReturnValueOnce(buildSelectChain([])) // ELO signal (getEloSignal)
       .mockReturnValueOnce(buildSelectChain([updatedPortrait]));
 
     const insertChain: Record<string, unknown> = {

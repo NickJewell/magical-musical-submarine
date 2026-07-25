@@ -13,6 +13,7 @@ import timelineRouter from "./timeline";
 import spotifyRouter from "./spotify";
 import duelRouter from "./duel";
 import canonRouter from "./canon";
+import eloRouter from "./elo";
 
 const router: IRouter = Router();
 
@@ -30,5 +31,6 @@ router.use(timelineRouter);
 router.use(spotifyRouter);
 router.use(duelRouter);
 router.use(canonRouter);
+router.use(eloRouter);
 
 export default router;

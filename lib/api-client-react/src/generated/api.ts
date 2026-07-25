@@ -27,8 +27,10 @@ import type {
   DiveDetail,
   DiveInput,
   DiveStep,
+  EloTrack,
   ErrorResponse,
   GeneratePortraitInput,
+  GetEloParams,
   GetMetricsParams,
   GetNextPairParams,
   GetPortraitParams,
@@ -1860,6 +1862,90 @@ export function useGetMetrics<TData = Awaited<ReturnType<typeof getMetrics>>, TE
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetMetricsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetEloUrl = (params: GetEloParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/elo?${stringifiedParams}` : `/api/elo`
+}
+
+/**
+ * @summary Get the user's tracks ranked by head-to-head ELO
+ */
+export const getElo = async (params: GetEloParams, options?: RequestInit): Promise<EloTrack[]> => {
+
+  return customFetch<EloTrack[]>(getGetEloUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetEloQueryKey = (params?: GetEloParams,) => {
+    return [
+    `/api/elo`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetEloQueryOptions = <TData = Awaited<ReturnType<typeof getElo>>, TError = ErrorType<unknown>>(params: GetEloParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getElo>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetEloQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getElo>>> = ({ signal }) => getElo(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getElo>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetEloQueryResult = NonNullable<Awaited<ReturnType<typeof getElo>>>
+export type GetEloQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get the user's tracks ranked by head-to-head ELO
+ */
+
+export function useGetElo<TData = Awaited<ReturnType<typeof getElo>>, TError = ErrorType<unknown>>(
+ params: GetEloParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getElo>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetEloQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

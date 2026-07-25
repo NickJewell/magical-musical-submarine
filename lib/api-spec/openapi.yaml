@@ -519,8 +519,50 @@ paths:
               schema:
                 $ref: "#/components/schemas/MetricsResponse"
 
+  /elo:
+    get:
+      operationId: getElo
+      tags: [metrics]
+      summary: Get the user's tracks ranked by head-to-head ELO
+      parameters:
+        - name: userId
+          in: query
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Ranked tracks, highest ELO first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/EloTrack"
+
 components:
   schemas:
+    EloTrack:
+      type: object
+      properties:
+        mbid:
+          type: string
+        title:
+          type: string
+        artist:
+          type: string
+        rating:
+          type: number
+        matches:
+          type: integer
+        wins:
+          type: integer
+        losses:
+          type: integer
+        draws:
+          type: integer
+      required: [mbid, title, artist, rating, matches, wins, losses, draws]
+
     HealthStatus:
       type: object
       properties:

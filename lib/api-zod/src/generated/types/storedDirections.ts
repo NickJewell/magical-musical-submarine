@@ -6,9 +6,11 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { Direction } from './direction';
+import type { Focus } from './focus';
 
 export interface StoredDirections {
   hypothesis: string;
   directions: Direction[];
   wellTroddenDirection: Direction;
+  focus?: Focus;
 }

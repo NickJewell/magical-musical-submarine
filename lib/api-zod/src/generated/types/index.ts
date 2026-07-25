@@ -19,6 +19,8 @@ export * from './divePathMetric';
 export * from './diveStatus';
 export * from './diveStep';
 export * from './errorResponse';
+export * from './focus';
+export * from './focusKind';
 export * from './generatePortraitInput';
 export * from './getMetricsParams';
 export * from './getNextPairParams';

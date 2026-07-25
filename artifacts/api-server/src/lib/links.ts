@@ -81,8 +81,8 @@ interface ItunesData {
 interface DeezerTrack { id: number; preview?: string }
 interface DeezerSearchResp { data?: DeezerTrack[] }
 
-/** Deezer search — free, no auth. Returns Deezer track ID for embeds. Non-throwing. */
-async function fetchDeezerData(artist: string, title: string): Promise<{ deezerId: string | null }> {
+/** Deezer search — free, no auth. Returns Deezer track ID for embeds + 30s preview URL. Non-throwing. */
+async function fetchDeezerData(artist: string, title: string): Promise<{ deezerId: string | null; previewUrl: string | null }> {
   try {
     const q = encodeURIComponent(`${artist} ${title}`);
     const data = await httpGet<DeezerSearchResp>(
@@ -90,12 +90,15 @@ async function fetchDeezerData(artist: string, title: string): Promise<{ deezerI
       { cacheKey: `deezer:${artist.toLowerCase()}:${title.toLowerCase()}`, cacheTtlMs: 30 * 24 * 60 * 60 * 1000 },
     );
     const track = data.data?.[0];
-    if (!track) return { deezerId: null };
-    return { deezerId: String(track.id) };
+    if (!track) return { deezerId: null, previewUrl: null };
+    return { deezerId: String(track.id), previewUrl: track.preview ?? null };
   } catch {
-    return { deezerId: null };
+    return { deezerId: null, previewUrl: null };
   }
 }
+
+/** Exported for the duel preview route — same caching path as full link resolution. */
+export { fetchDeezerData };
 
 /** iTunes Search API — returns artwork (upscaled) and Apple Music track URL. Non-throwing. */
 async function fetchItunesData(artist: string, title: string): Promise<ItunesData> {

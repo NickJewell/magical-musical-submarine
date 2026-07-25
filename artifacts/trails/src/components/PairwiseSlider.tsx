@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSubmitPair } from '@workspace/api-client-react';
 import { Button } from '@/components/ui/button';
+import { Play, Pause, Loader2 } from 'lucide-react';
 
 const LABEL: Record<number, string> = {
   [-2]: 'strongly this one',
@@ -22,22 +23,118 @@ interface PairwiseSliderProps {
   onSkip?: () => void;
 }
 
+interface DeezerPreview { previewUrl: string | null; deezerId: string | null }
+
+async function fetchPreview(title: string, artist: string): Promise<DeezerPreview> {
+  try {
+    const params = new URLSearchParams({ title, artist });
+    const res = await fetch(`/api/deezer-preview?${params}`);
+    if (!res.ok) return { previewUrl: null, deezerId: null };
+    return await res.json() as DeezerPreview;
+  } catch {
+    return { previewUrl: null, deezerId: null };
+  }
+}
+
 export function PairwiseSlider({
   userId, aMbid, aTitle, aArtist, bMbid, bTitle, bArtist, onDone, onSkip,
 }: PairwiseSliderProps) {
   const [value, setValue] = useState(0);
   const submitPair = useSubmitPair();
 
+  // Preview state
+  const [aPreview, setAPreview] = useState<string | null>(null);
+  const [bPreview, setBPreview] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [playing, setPlaying] = useState<'a' | 'b' | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Fetch both previews on mount (or when tracks change)
+  useEffect(() => {
+    setPlaying(null);
+    audioRef.current?.pause();
+    setLoading(true);
+    setAPreview(null);
+    setBPreview(null);
+
+    let cancelled = false;
+    Promise.all([
+      fetchPreview(aTitle, aArtist),
+      fetchPreview(bTitle, bArtist),
+    ]).then(([a, b]) => {
+      if (cancelled) return;
+      setAPreview(a.previewUrl);
+      setBPreview(b.previewUrl);
+      setLoading(false);
+    });
+
+    return () => { cancelled = true; audioRef.current?.pause(); };
+  }, [aMbid, bMbid, aTitle, aArtist, bTitle, bArtist]);
+
+  const togglePlay = (side: 'a' | 'b') => {
+    const url = side === 'a' ? aPreview : bPreview;
+    if (!url) return;
+
+    if (playing === side) {
+      audioRef.current?.pause();
+      setPlaying(null);
+      return;
+    }
+
+    // Stop whatever is playing, start new
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.src = '';
+    }
+    const audio = new Audio(url);
+    audioRef.current = audio;
+    audio.play().catch(() => {});
+    audio.onended = () => setPlaying(null);
+    setPlaying(side);
+  };
+
   const handleConfirm = () => {
+    audioRef.current?.pause();
+    setPlaying(null);
     submitPair.mutate(
       { data: { userId, aMbid, bMbid, result: value } },
       { onSuccess: () => { setValue(0); onDone(); } }
     );
   };
 
-  const leftActive = value < 0;
+  const leftActive  = value < 0;
   const rightActive = value > 0;
-  const isCenter = value === 0;
+  const isCenter    = value === 0;
+
+  const PreviewButton = ({ side }: { side: 'a' | 'b' }) => {
+    const hasPreview = side === 'a' ? !!aPreview : !!bPreview;
+    const isPlaying  = playing === side;
+
+    if (loading) {
+      return (
+        <div className="mt-2 flex justify-center">
+          <Loader2 className="w-3 h-3 text-muted-foreground/30 animate-spin" />
+        </div>
+      );
+    }
+    if (!hasPreview) return null;
+
+    return (
+      <button
+        onClick={(e) => { e.stopPropagation(); togglePlay(side); }}
+        className={`mt-2 mx-auto flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-mono transition-all
+          ${isPlaying
+            ? 'bg-primary/20 text-primary border border-primary/40'
+            : 'bg-secondary/40 text-muted-foreground border border-border/30 hover:text-primary hover:border-primary/30'
+          }`}
+      >
+        {isPlaying
+          ? <><Pause className="w-2.5 h-2.5" /> pause</>
+          : <><Play  className="w-2.5 h-2.5" /> preview</>
+        }
+      </button>
+    );
+  };
 
   return (
     <div className="space-y-5 animate-in fade-in slide-in-from-bottom-2 duration-500">
@@ -57,6 +154,7 @@ export function PairwiseSlider({
               {LABEL[value]}
             </p>
           )}
+          <PreviewButton side="a" />
         </div>
         <div className={`p-4 rounded-2xl border text-center transition-all duration-200 ${
           rightActive ? 'border-primary/70 bg-primary/10 shadow-[0_0_12px_hsla(180,80%,40%,0.15)]' : 'border-border/30 bg-secondary/20'
@@ -68,6 +166,7 @@ export function PairwiseSlider({
               {LABEL[value]}
             </p>
           )}
+          <PreviewButton side="b" />
         </div>
       </div>
 

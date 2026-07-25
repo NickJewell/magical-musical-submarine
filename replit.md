@@ -34,7 +34,7 @@ _Describe the high-level user-facing capabilities of this app once they exist._
 
 ## User preferences
 
-_Populate as you build — explicit user instructions worth remembering across sessions._
+- **Draft PR at task start.** When beginning a task with a clear goal, create the task branch, make an initial commit, and open a **draft** PR against `main` early — then keep pushing to it so changes can be watched as they land. Mark it "Ready for review" when the work is done. (Small throwaway experiments can skip this.)
 
 ## Gotchas
 

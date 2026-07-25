@@ -3,7 +3,7 @@ import { useParams, useLocation } from 'wouter';
 import {
   useLoadDive, useLoadRecap, useGetDirections, useChooseStep, useGetTastePair,
   getLoadDiveQueryKey, getLoadRecapQueryKey, getGetTastePairQueryKey,
-  type Focus,
+  type Focus, type DirectionsResponse,
 } from '@workspace/api-client-react';
 import { useLocalUser } from '@/lib/useLocalUser';
 import { Button } from '@/components/ui/button';
@@ -51,7 +51,17 @@ function DiveContent({ userId, diveId, onNavigate }: { userId: number, diveId: n
     { query: { enabled: showPairwise && !!userId, queryKey: getGetTastePairQueryKey({ userId }) } }
   );
 
+  // Directions result is held in local state and gated by a monotonic request
+  // id. The initial taste-based auto-load and a focus pick both go through the
+  // same mutation and each take ~10s, so they can be in flight together and
+  // resolve out of order. Reading the mutation's shared `.data` directly let a
+  // slower/older taste-based response overwrite the focused one — the chip
+  // showed the selection while the paths stayed portrait-based. Gating every
+  // response behind the latest request id makes a superseded response a no-op.
+  const [dirs, setDirs] = useState<DirectionsResponse | null>(null);
+  const [directionsLoading, setDirectionsLoading] = useState(true);
   const [directionsFailed, setDirectionsFailed] = useState(false);
+  const reqIdRef = useRef(0);
 
   // Single code path for generating directions: initial load, focus picks, and
   // clearing focus all go through here. `focusArg` null = taste-based from the
@@ -60,10 +70,23 @@ function DiveContent({ userId, diveId, onNavigate }: { userId: number, diveId: n
   // it as a dependency (which would re-fire it).
   const runDirectionsRef = useRef<(focusArg: Focus | null) => void>(() => {});
   runDirectionsRef.current = (focusArg: Focus | null) => {
+    const reqId = ++reqIdRef.current;
     setDirectionsFailed(false);
+    setDirectionsLoading(true);
     getDirections.mutate(
       { data: { userId, diveId, ...(focusArg ? { focus: focusArg } : {}) } },
-      { onError: () => setDirectionsFailed(true) },
+      {
+        onSuccess: (data) => {
+          if (reqId !== reqIdRef.current) return; // superseded by a newer request — ignore
+          setDirs(data);
+          setDirectionsLoading(false);
+        },
+        onError: () => {
+          if (reqId !== reqIdRef.current) return;
+          setDirectionsFailed(true);
+          setDirectionsLoading(false);
+        },
+      },
     );
   };
   const runDirections = (focusArg: Focus | null) => runDirectionsRef.current(focusArg);
@@ -101,15 +124,15 @@ function DiveContent({ userId, diveId, onNavigate }: { userId: number, diveId: n
   );
 
   const handleChoose = (label: string) => {
-    if (!getDirections.data) return;
+    if (!dirs) return;
     chooseStep.mutate(
-      { 
+      {
         data: {
           userId,
           diveId,
           chosenDirection: label,
-          hypothesisText: getDirections.data.hypothesis,
-          directionsJson: { ...getDirections.data, ...(focus ? { focus } : {}) }
+          hypothesisText: dirs.hypothesis,
+          directionsJson: { ...dirs, ...(focus ? { focus } : {}) }
         }
       },
       {
@@ -122,7 +145,7 @@ function DiveContent({ userId, diveId, onNavigate }: { userId: number, diveId: n
 
   const activePair = showPairwise && !pairwiseDone && tastePair && !tastePair.done;
 
-  if (diveLoading || getDirections.isPending) {
+  if (diveLoading || directionsLoading) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center min-h-[100dvh] p-6">
         {activePair ? (
@@ -156,8 +179,6 @@ function DiveContent({ userId, diveId, onNavigate }: { userId: number, diveId: n
     );
   }
 
-  const dirs = getDirections.data;
-
   return (
     <div className="p-6 pt-12 max-w-md mx-auto space-y-12 pb-24 animate-in fade-in duration-1000">
       <div className="text-center space-y-2">
@@ -178,7 +199,7 @@ function DiveContent({ userId, diveId, onNavigate }: { userId: number, diveId: n
             </div>
             <button
               onClick={handleClearFocus}
-              disabled={getDirections.isPending}
+              disabled={directionsLoading}
               className="shrink-0 flex items-center gap-1 text-xs text-muted-foreground/70 hover:text-muted-foreground disabled:opacity-50"
             >
               <X className="w-3.5 h-3.5" /> Clear
@@ -192,7 +213,7 @@ function DiveContent({ userId, diveId, onNavigate }: { userId: number, diveId: n
                 <X className="w-4 h-4" />
               </button>
             </div>
-            <FocusPicker userId={userId} onPick={handlePickFocus} disabled={getDirections.isPending} />
+            <FocusPicker userId={userId} onPick={handlePickFocus} disabled={directionsLoading} />
           </div>
         ) : (
           <button

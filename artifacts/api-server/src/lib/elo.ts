@@ -249,6 +249,23 @@ export interface RankedTrack {
   draws: number;
 }
 
+/**
+ * Map of mbid → { rating, matches } for a user, after backfilling. Used by the
+ * pair picker to favour informative, under-sampled match-ups. Tracks with no
+ * row default to the baseline (rating 1500, 0 matches).
+ */
+export async function getEloMap(userId: number): Promise<Map<string, { rating: number; matches: number }>> {
+  await ensureUserTracksSeeded(userId);
+  const rows = await db
+    .select({ mbid: trackEloTable.mbid, rating: trackEloTable.rating, matches: trackEloTable.matches })
+    .from(trackEloTable)
+    .where(eq(trackEloTable.userId, userId))
+    .catch(() => []);
+  const map = new Map<string, { rating: number; matches: number }>();
+  for (const r of rows) map.set(r.mbid, { rating: r.rating, matches: r.matches });
+  return map;
+}
+
 /** All of a user's ranked tracks, highest ELO first. */
 export async function getRankedTracks(userId: number): Promise<RankedTrack[]> {
   const rows = await db

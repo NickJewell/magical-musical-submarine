@@ -109,7 +109,8 @@ import { createHash } from "node:crypto";
 
 function computeSeedsHash(
   seeds: Array<{ title: string; artist: string; year?: number | null; prompt?: string | null }>,
-  pairChoices: Array<{ winner: string; loser: string; strength: number }>
+  pairChoices: Array<{ winner: string; loser: string; strength: number }>,
+  ratingCount: number
 ): string {
   const payload = JSON.stringify({
     seeds: seeds.map((s) => ({
@@ -123,13 +124,17 @@ function computeSeedsHash(
       loser: p.loser.trim().toLowerCase(),
       strength: p.strength,
     })),
+    ratingCount,
   });
   return createHash("sha256").update(payload).digest("hex");
 }
 
+// No pair choices and a taste-event count of 0 (matching the mocked db below).
+const RATING_COUNT = 0;
 const SEEDS_HASH = computeSeedsHash(
   [{ title: mockSeed.title, artist: mockSeed.artist, year: mockSeed.year, prompt: mockSeed.prompt }],
-  [] // no pair choices
+  [], // no pair choices
+  RATING_COUNT
 );
 
 const mockCachedPortrait = {
@@ -165,14 +170,19 @@ describe("POST /portrait/generate — cache hit", () => {
   it("returns the cached portrait without calling the LLM when seeds_hash matches", async () => {
     const dbMock = db as unknown as DbMock;
 
-    // Call 1 — load seeds: db.select().from(seedsTable).where(...)
+    // rebuildPortrait() then the route's final fetch make six select calls:
     dbMock.select
+      // 1 — load seeds:               db.select().from(seedsTable).where(...)
       .mockReturnValueOnce(buildSelectChain([mockSeed]))
-      // Call 2 — load taste events (pair choices):
-      // db.select().from(tasteEventsTable).where(...).then(fn)
+      // 2 — pair-choice taste events: ...where(...).then(fn)
       .mockReturnValueOnce(buildSelectChain([]))
-      // Call 3 — load latest portrait for cache check:
-      // db.select().from(portraitsTable).where(...).orderBy(...).limit(1)
+      // 3 — recent-rating taste events: ...orderBy(...).limit(n)
+      .mockReturnValueOnce(buildSelectChain([]))
+      // 4 — taste-event count:        db.select({cnt}).from(...).where(...)
+      .mockReturnValueOnce(buildSelectChain([{ cnt: RATING_COUNT }]))
+      // 5 — latest portrait (cache check): ...orderBy(...).limit(1) → cache hit
+      .mockReturnValueOnce(buildSelectChain([mockCachedPortrait]))
+      // 6 — route re-fetches the persisted row to return it
       .mockReturnValueOnce(buildSelectChain([mockCachedPortrait]));
 
     const res = await request(makeApp())
@@ -201,15 +211,19 @@ describe("POST /portrait/generate — cache hit", () => {
     vi.mocked(generatePortrait).mockResolvedValue(NEW_TEXT);
 
     const dbMock = db as unknown as DbMock;
+    const newPortrait = { ...mockCachedPortrait, id: 11, text: NEW_TEXT, version: 1 };
 
-    // seeds, taste events, portrait check (empty)
+    // seeds, pair events, rating events, count, portrait check (empty → generate),
+    // then the route's final fetch returns the freshly inserted row.
     dbMock.select
       .mockReturnValueOnce(buildSelectChain([mockSeed]))
       .mockReturnValueOnce(buildSelectChain([]))
-      .mockReturnValueOnce(buildSelectChain([]));
+      .mockReturnValueOnce(buildSelectChain([]))
+      .mockReturnValueOnce(buildSelectChain([{ cnt: RATING_COUNT }]))
+      .mockReturnValueOnce(buildSelectChain([]))
+      .mockReturnValueOnce(buildSelectChain([newPortrait]));
 
     // insert returning the new portrait row
-    const newPortrait = { ...mockCachedPortrait, id: 11, text: NEW_TEXT, version: 1 };
     const insertChain: Record<string, unknown> = {
       then: (res: (v: unknown) => unknown) => Promise.resolve(undefined).then(res),
       catch: (fn: (e: unknown) => unknown) => Promise.resolve(undefined).catch(fn),
@@ -226,8 +240,8 @@ describe("POST /portrait/generate — cache hit", () => {
 
     expect(res.status).toBe(200);
     expect(generatePortrait).toHaveBeenCalledTimes(1);
-    // No cached flag on a fresh generation
-    expect(res.body.cached).toBeUndefined();
+    // Fresh generation → not a cache hit
+    expect(res.body.cached).toBe(false);
     expect(res.body.text).toBe(NEW_TEXT);
   });
 
@@ -240,13 +254,16 @@ describe("POST /portrait/generate — cache hit", () => {
     vi.mocked(generatePortrait).mockResolvedValue("Fresh portrait text.");
 
     const dbMock = db as unknown as DbMock;
+    const updatedPortrait = { ...STALE_PORTRAIT, id: 12, seedsHash: SEEDS_HASH, version: 2 };
 
     dbMock.select
       .mockReturnValueOnce(buildSelectChain([mockSeed]))
       .mockReturnValueOnce(buildSelectChain([]))
-      .mockReturnValueOnce(buildSelectChain([STALE_PORTRAIT]));
+      .mockReturnValueOnce(buildSelectChain([]))
+      .mockReturnValueOnce(buildSelectChain([{ cnt: RATING_COUNT }]))
+      .mockReturnValueOnce(buildSelectChain([STALE_PORTRAIT]))
+      .mockReturnValueOnce(buildSelectChain([updatedPortrait]));
 
-    const updatedPortrait = { ...STALE_PORTRAIT, id: 12, seedsHash: SEEDS_HASH, version: 2 };
     const insertChain: Record<string, unknown> = {
       then: (res: (v: unknown) => unknown) => Promise.resolve(undefined).then(res),
       catch: (fn: (e: unknown) => unknown) => Promise.resolve(undefined).catch(fn),
@@ -264,6 +281,6 @@ describe("POST /portrait/generate — cache hit", () => {
     expect(res.status).toBe(200);
     // Seeds have changed → LLM must be called
     expect(generatePortrait).toHaveBeenCalledTimes(1);
-    expect(res.body.cached).toBeUndefined();
+    expect(res.body.cached).toBe(false);
   });
 });

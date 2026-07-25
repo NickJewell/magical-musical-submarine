@@ -14,7 +14,10 @@ const router = Router();
 
 // Guard: all /spotify/* routes return 404 when feature is disabled
 function requireSpotify(req: import("express").Request, res: import("express").Response, next: import("express").NextFunction) {
-  if (!SPOTIFY_ENABLED) return res.status(404).json({ error: "Spotify export not enabled" });
+  if (!SPOTIFY_ENABLED) {
+    res.status(404).json({ error: "Spotify export not enabled" });
+    return;
+  }
   next();
 }
 // Temporary in-memory PKCE store (codeVerifier keyed by state, auto-expires after 15 min)

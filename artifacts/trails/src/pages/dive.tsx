@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import { useParams, useLocation } from 'wouter';
 import {
   useLoadDive, useLoadRecap, useGetDirections, useChooseStep, useGetTastePair,
-  getLoadDiveQueryKey, getLoadRecapQueryKey,
+  getLoadDiveQueryKey, getLoadRecapQueryKey, getGetTastePairQueryKey,
   type Focus,
 } from '@workspace/api-client-react';
 import { useLocalUser } from '@/lib/useLocalUser';
@@ -35,7 +35,6 @@ function DiveContent({ userId, diveId, onNavigate }: { userId: number, diveId: n
     { query: { enabled: !!diveId && !!userId, queryKey: getLoadDiveQueryKey({ diveId, userId }) } }
   );
   
-  const [directionsReady, setDirectionsReady] = useState(false);
   const [showPairwise] = useState(() => Math.random() < 0.5);
   const [pairwiseDone, setPairwiseDone] = useState(false);
 
@@ -49,42 +48,40 @@ function DiveContent({ userId, diveId, onNavigate }: { userId: number, diveId: n
 
   const { data: tastePair } = useGetTastePair(
     { userId },
-    { query: { enabled: showPairwise && !!userId } }
+    { query: { enabled: showPairwise && !!userId, queryKey: getGetTastePairQueryKey({ userId }) } }
   );
-  
+
   const [directionsFailed, setDirectionsFailed] = useState(false);
 
-  const getDirsMutateRef = useRef(getDirections.mutate);
-  getDirsMutateRef.current = getDirections.mutate;
-
-  useEffect(() => {
-    if (dive && !directionsReady && !directionsFailed) {
-      getDirsMutateRef.current(
-        { data: { userId, diveId } },
-        {
-          onSuccess: () => setDirectionsReady(true),
-          onError: () => setDirectionsFailed(true),
-        }
-      );
-    }
-  }, [dive, userId, diveId, directionsReady, directionsFailed]);
-
-  const handleRetryDirections = () => {
+  // Single code path for generating directions: initial load, focus picks, and
+  // clearing focus all go through here. `focusArg` null = taste-based from the
+  // portrait; otherwise the three paths are generated for that selection alone.
+  // Held in a ref so the once-only auto-load effect can call it without taking
+  // it as a dependency (which would re-fire it).
+  const runDirectionsRef = useRef<(focusArg: Focus | null) => void>(() => {});
+  runDirectionsRef.current = (focusArg: Focus | null) => {
     setDirectionsFailed(false);
-    getDirections.reset();
-  };
-
-  // Regenerate directions for a chosen focus (or clear it to return to taste-based).
-  const runDirections = (focusArg: Focus | null) => {
-    setDirectionsFailed(false);
-    setDirectionsReady(false);
     getDirections.mutate(
       { data: { userId, diveId, ...(focusArg ? { focus: focusArg } : {}) } },
-      {
-        onSuccess: () => setDirectionsReady(true),
-        onError: () => setDirectionsFailed(true),
-      },
+      { onError: () => setDirectionsFailed(true) },
     );
+  };
+  const runDirections = (focusArg: Focus | null) => runDirectionsRef.current(focusArg);
+
+  // Auto-load the initial (taste-based) directions exactly once when the dive
+  // arrives. Guarded by a ref so nothing re-triggers it — picking a focus goes
+  // through runDirections() explicitly and must not be clobbered by a re-fire.
+  const initiatedRef = useRef(false);
+  useEffect(() => {
+    if (dive && !initiatedRef.current) {
+      initiatedRef.current = true;
+      runDirectionsRef.current(null);
+    }
+  }, [dive]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleRetryDirections = () => {
+    // Retry preserves the current focus (taste-based when null).
+    runDirections(focus);
   };
 
   const handlePickFocus = (f: Focus) => {

@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { db, portraitsTable } from "@workspace/db";
+import { db, portraitsTable, tasteEventsTable } from "@workspace/db";
 import { eq, desc } from "drizzle-orm";
 import {
   GetPortraitQueryParams,

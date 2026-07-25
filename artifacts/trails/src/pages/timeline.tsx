@@ -581,6 +581,7 @@ function TimelineContent({ userId }: { userId: number }) {
       );
       return () => clearTimeout(t);
     }
+    return undefined;
   }, [ratedCount, userId, queryClient]);
 
   // Initial load

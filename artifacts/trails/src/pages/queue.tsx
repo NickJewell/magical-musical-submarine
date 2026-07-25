@@ -290,7 +290,7 @@ function RecCard({ rec, userId, onRated, activeRecId, onActivate }: {
       </div>
 
       {rec.narrativeText && (
-        <p className="text-sm leading-relaxed text-primary-foreground/80 font-serif">
+        <p className="text-sm leading-relaxed text-primary-foreground/80 font-serif whitespace-pre-wrap">
           {rec.narrativeText}
         </p>
       )}

@@ -355,6 +355,14 @@ router.post("/step", async (req, res): Promise<void> => {
     })
     .returning();
 
+  // On the first path chosen, rename the dive to the direction label (≤30 chars).
+  if (seq === 1 && chosenDirection) {
+    const name = chosenDirection.length > 30
+      ? chosenDirection.slice(0, 30).trimEnd()
+      : chosenDirection;
+    await db.update(divesTable).set({ name }).where(eq(divesTable.id, diveId));
+  }
+
   res.status(201).json({
     id: step.id,
     diveId: step.diveId,

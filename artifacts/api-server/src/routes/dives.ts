@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db, divesTable, diveStepsTable, recommendationsTable, ratingsTable, pathRatingsTable, portraitsTable, seedsTable, tasteEventsTable } from "@workspace/db";
-import { eq, desc, count, and } from "drizzle-orm";
+import { eq, desc, count, and, inArray } from "drizzle-orm";
 import {
   CreateDiveBody,
   ListDivesQueryParams,
@@ -366,6 +366,84 @@ router.post("/step", async (req, res): Promise<void> => {
     pathRating: null,
     createdAt: step.createdAt.toISOString(),
   });
+});
+
+// Cascade-delete a set of dive steps: ratings → recommendations → path_ratings → steps.
+// No ON DELETE CASCADE is defined, so children must go first. track_elo and
+// taste_events are keyed by (userId, mbid)/userId and left intact by design —
+// they're aggregate taste signal, not per-dive rows.
+async function deleteSteps(stepIds: number[]): Promise<void> {
+  if (stepIds.length === 0) return;
+
+  const recs = await db
+    .select({ id: recommendationsTable.id })
+    .from(recommendationsTable)
+    .where(inArray(recommendationsTable.diveStepId, stepIds));
+  const recIds = recs.map((r) => r.id);
+
+  if (recIds.length > 0) {
+    await db.delete(ratingsTable).where(inArray(ratingsTable.recId, recIds));
+  }
+  await db.delete(recommendationsTable).where(inArray(recommendationsTable.diveStepId, stepIds));
+  await db.delete(pathRatingsTable).where(inArray(pathRatingsTable.diveStepId, stepIds));
+  await db.delete(diveStepsTable).where(inArray(diveStepsTable.id, stepIds));
+}
+
+// DELETE /step/:id — delete a single dive leg (path) and everything under it
+router.delete("/step/:id", async (req, res): Promise<void> => {
+  const stepId = parseInt(req.params.id, 10);
+  if (isNaN(stepId)) { res.status(400).json({ error: "Invalid step id" }); return; }
+
+  const userId = Number((req.body as { userId?: unknown })?.userId ?? req.query.userId);
+  if (!userId) { res.status(400).json({ error: "userId required" }); return; }
+
+  const [step] = await db
+    .select({ id: diveStepsTable.id, diveId: diveStepsTable.diveId, ownerId: divesTable.userId })
+    .from(diveStepsTable)
+    .innerJoin(divesTable, eq(diveStepsTable.diveId, divesTable.id))
+    .where(eq(diveStepsTable.id, stepId))
+    .limit(1);
+
+  if (!step) { res.status(404).json({ error: "Dive step not found" }); return; }
+  if (step.ownerId !== userId) { res.status(403).json({ error: "Access denied" }); return; }
+
+  await deleteSteps([stepId]);
+
+  // If the dive is now empty, remove the dive shell too so it doesn't linger.
+  const [remaining] = await db
+    .select({ count: count() })
+    .from(diveStepsTable)
+    .where(eq(diveStepsTable.diveId, step.diveId));
+  let diveDeleted = false;
+  if (Number(remaining.count) === 0) {
+    await db.delete(divesTable).where(eq(divesTable.id, step.diveId));
+    diveDeleted = true;
+  }
+
+  res.json({ deleted: true, stepId, diveDeleted, diveId: step.diveId });
+});
+
+// DELETE /dive/:id — delete an entire dive and all its legs
+router.delete("/dive/:id", async (req, res): Promise<void> => {
+  const diveId = parseInt(req.params.id, 10);
+  if (isNaN(diveId)) { res.status(400).json({ error: "Invalid dive id" }); return; }
+
+  const userId = Number((req.body as { userId?: unknown })?.userId ?? req.query.userId);
+  if (!userId) { res.status(400).json({ error: "userId required" }); return; }
+
+  const [dive] = await db.select().from(divesTable).where(eq(divesTable.id, diveId)).limit(1);
+  if (!dive) { res.status(404).json({ error: "Dive not found" }); return; }
+  if (dive.userId !== userId) { res.status(403).json({ error: "Access denied" }); return; }
+
+  const steps = await db
+    .select({ id: diveStepsTable.id })
+    .from(diveStepsTable)
+    .where(eq(diveStepsTable.diveId, diveId));
+
+  await deleteSteps(steps.map((s) => s.id));
+  await db.delete(divesTable).where(eq(divesTable.id, diveId));
+
+  res.json({ deleted: true, diveId, stepsDeleted: steps.length });
 });
 
 // POST /recommend — run pipeline

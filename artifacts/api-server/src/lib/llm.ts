@@ -100,10 +100,15 @@ export async function propose(opts: {
   directionLabel: string;
   directionRationale: string;
   similarArtists: string[];
+  eloTop?: string[];
   count?: number;
   broader?: boolean;
 }): Promise<Candidate[]> {
-  const { portraitText, recap, directionLabel, directionRationale, similarArtists, count = 5, broader = false } = opts;
+  const { portraitText, recap, directionLabel, directionRationale, similarArtists, eloTop = [], count = 5, broader = false } = opts;
+
+  const eloBlock = eloTop.length > 0
+    ? `\n\nThe user's highest-ranked tracks by head-to-head comparison (their taste's center of gravity — lean toward this sensibility and quality bar, but do NOT re-suggest these exact tracks):\n${eloTop.map((t) => `- ${t}`).join("\n")}`
+    : "";
 
   const wellTroddenList = similarArtists.slice(0, 10).join(", ");
 
@@ -128,7 +133,7 @@ Recent dive recap:
 ${recap || "(first dive — no recap yet)"}
 
 Chosen direction: "${directionLabel}"
-Direction rationale: ${directionRationale}
+Direction rationale: ${directionRationale}${eloBlock}
 
 Generate ${count} individual track candidates that fit this direction and this user's taste. Each must be a specific song, not an album title. Steer away from the well-trodden artists.`;
 
@@ -178,9 +183,10 @@ export async function directions(opts: {
   recap: string;
   seeds: Array<{ title: string; artist: string }>;
   similarArtists: string[];
+  eloTop?: string[];
   focus?: { kind: string; label: string; artist?: string | null } | null;
 }): Promise<DirectionsResult> {
-  const { portraitText, recap, seeds, similarArtists, focus } = opts;
+  const { portraitText, recap, seeds, similarArtists, eloTop = [], focus } = opts;
   const wellTroddenList = similarArtists.slice(0, 10).join(", ");
   const wellTroddenTop = similarArtists[0] ?? "a popular similar artist";
 
@@ -225,6 +231,9 @@ CRITICAL RULES:
 - The well_trodden direction is the conventional pick — just name the obvious similar artist.`;
 
     const seedList = seeds.map((s) => `"${s.title}" by ${s.artist}`).join(", ");
+    const eloLine = eloTop.length > 0
+      ? `\n\nHighest-ranked by head-to-head comparison (the center of their taste — the strongest paths should honor this gravity, the contrastive ones should knowingly pull against it):\n${eloTop.map((t) => `- ${t}`).join("\n")}`
+      : "";
     userPrompt = `User seeds: ${seedList}
 
 Taste portrait:
@@ -233,7 +242,7 @@ ${portraitText}
 Recap:
 ${recap || "(no prior dives)"}
 
-Well-trodden reference (top Last.fm similar): ${wellTroddenTop}
+Well-trodden reference (top Last.fm similar): ${wellTroddenTop}${eloLine}
 
 Generate 3 named themed directions (contrastive) and the well-trodden direction.`;
   }
@@ -302,9 +311,11 @@ export async function generatePortrait(opts: {
   seeds: Array<{ title: string; artist: string; year: number | null; prompt: string | null }>;
   pairChoices: Array<{ winner: string; loser: string; strength: number }>;
   recentRatings?: Array<{ title: string; artist: string; listenState: string; score: number | null; reviewText?: string | null }>;
+  eloTop?: Array<{ title: string; artist: string; rating: number }>;
+  eloBottom?: Array<{ title: string; artist: string; rating: number }>;
   priorPortrait?: string | null;
 }): Promise<string> {
-  const { seeds, pairChoices, recentRatings, priorPortrait } = opts;
+  const { seeds, pairChoices, recentRatings, eloTop, eloBottom, priorPortrait } = opts;
 
   const seedList = seeds
     .map((s) => `- "${s.title}" by ${s.artist}${s.year ? ` (${s.year})` : ""}${s.prompt ? ` [seeded from: "${s.prompt}"]` : ""}`)
@@ -348,11 +359,20 @@ Output rules:
       }).join("\n")
     : "";
 
+  const eloBlock = eloTop && eloTop.length > 0
+    ? "\n\nHead-to-head ELO ranking (the distilled result of their direct comparisons — the SHARPEST preference signal; weight the extremes heavily). The top is the pole their taste gravitates toward, the bottom is what it pushes against:\n" +
+      "Highest-ranked:\n" +
+      eloTop.map((t) => `- "${t.title}" by ${t.artist} (${Math.round(t.rating)})`).join("\n") +
+      (eloBottom && eloBottom.length > 0
+        ? "\nLowest-ranked:\n" + eloBottom.map((t) => `- "${t.title}" by ${t.artist} (${Math.round(t.rating)})`).join("\n")
+        : "")
+    : "";
+
   const priorBlock = priorPortrait
     ? `\n\nPrior portrait (evolve this, do not discard):\n${priorPortrait}`
     : "";
 
-  const userPrompt = `Seeds:\n${seedList}\n\nPairwise preferences:\n${pairList}${ratingsBlock}${priorBlock}`;
+  const userPrompt = `Seeds:\n${seedList}\n\nPairwise preferences:\n${pairList}${ratingsBlock}${eloBlock}${priorBlock}`;
 
   const portrait = await chat(NARRATE_MODEL, [
     { role: "system", content: systemPrompt },

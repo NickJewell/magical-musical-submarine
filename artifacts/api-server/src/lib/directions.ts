@@ -7,6 +7,7 @@ import { db, seedsTable, portraitsTable, diveStepsTable } from "@workspace/db";
 import { eq, desc } from "drizzle-orm";
 import { enrichFromSeeds, enrichFromFocus, type Focus } from "./enrich";
 import { directions as llmDirections } from "./llm";
+import { getEloSignal } from "./elo";
 
 export async function directions(opts: { userId: number; diveId: number; focus?: Focus | null }) {
   const { userId, diveId, focus } = opts;
@@ -51,6 +52,12 @@ export async function directions(opts: { userId: number; diveId: number; focus?:
     .slice(0, 15)
     .map((a) => a.name);
 
+  // Head-to-head ELO signal steers taste-based dives. A focused dive
+  // deliberately ignores the user's taste, so we skip it there.
+  const eloTop = focus
+    ? []
+    : (await getEloSignal(userId, 6)).top.map((t) => `"${t.title}" by ${t.artist}`);
+
   // Call LLM. On a focused dive we pass the focus through and the LLM
   // generates paths from that selection alone (portrait ignored).
   const result = await llmDirections({
@@ -58,6 +65,7 @@ export async function directions(opts: { userId: number; diveId: number; focus?:
     recap,
     seeds: seeds.map((s) => ({ title: s.title, artist: s.artist })),
     similarArtists: similarArtistNames,
+    eloTop,
     focus: focus ?? null,
   });
 

@@ -10,6 +10,7 @@ import { enrichFromSeeds, enrichFromFocus, lastfmTopTrack, type EnrichResult, ty
 import { resolve, MB_REQUEST_TIMEOUT_MS } from "./musicbrainz";
 import { resolveLinks } from "./links";
 import { propose, narrate } from "./llm";
+import { getEloSignal } from "./elo";
 import { logger } from "./logger";
 
 const MAX_CANDIDATES = 7;
@@ -81,6 +82,10 @@ export async function recommend(opts: { stepId: number; userId: number }) {
     reviewText: r.reviewText ?? null,
   }));
 
+  // Head-to-head ELO signal — the user's strongest-ranked tracks steer propose.
+  const eloSignal = await getEloSignal(userId, 6);
+  const eloTopFormatted = eloSignal.top.map((t) => `"${t.title}" by ${t.artist}`);
+
   const directionLabel = step.chosenDirection ?? "explore";
   const directionsJson = step.directionsJson as {
     directions?: Array<{ label: string; rationale: string }>;
@@ -150,6 +155,7 @@ export async function recommend(opts: { stepId: number; userId: number }) {
           directionLabel,
           directionRationale,
           similarArtists: similarArtistNames,
+          eloTop: eloTopFormatted,
           count: MAX_CANDIDATES,
           broader,
         }),

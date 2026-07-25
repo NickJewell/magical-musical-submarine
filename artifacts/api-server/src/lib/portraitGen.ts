@@ -8,6 +8,7 @@ import { db, seedsTable, portraitsTable, tasteEventsTable, ratingsTable, recomme
 import { eq, desc, count } from "drizzle-orm";
 import { createHash } from "node:crypto";
 import { generatePortrait } from "./llm";
+import { getEloSignal } from "./elo";
 import { logger } from "./logger";
 
 function computeSeedsHash(
@@ -123,6 +124,10 @@ export async function rebuildPortrait(userId: number, { force = false } = {}): P
     return { text: latest.text, version: latest.version, seedsHash, cached: true };
   }
 
+  // Head-to-head ELO signal: the tracks they've ranked strongest and weakest
+  // in direct comparisons — the sharpest preference signal we have.
+  const eloSignal = await getEloSignal(userId, 6);
+
   const text = await generatePortrait({
     seeds: seeds.map((s) => ({
       title: s.title,
@@ -132,6 +137,8 @@ export async function rebuildPortrait(userId: number, { force = false } = {}): P
     })),
     pairChoices,
     recentRatings,
+    eloTop: eloSignal.top.map((t) => ({ title: t.title, artist: t.artist, rating: t.rating })),
+    eloBottom: eloSignal.bottom.map((t) => ({ title: t.title, artist: t.artist, rating: t.rating })),
     priorPortrait: latest?.text ?? null,
   });
 

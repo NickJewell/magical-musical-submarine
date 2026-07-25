@@ -375,43 +375,31 @@ export async function narrate(opts: {
   directionLabel: string;
   priorRatings: Array<{ title: string; artist: string; listenState: string; score: number | null; reviewText?: string | null }>;
 }): Promise<string> {
-  const { portraitText, rec, directionLabel, priorRatings } = opts;
-
-  const ratingContext = priorRatings.length > 0
-    ? priorRatings
-        .slice(0, 8)
-        .map((r) => {
-          const verdict = r.score === 1 ? "cooled on it"
-            : r.score === 2 ? "felt lukewarm"
-            : r.score === 3 ? "loved it" : r.listenState;
-          const note = r.reviewText ? ` — they wrote: "${r.reviewText}"` : "";
-          return `- "${r.title}" by ${r.artist}: ${verdict}${note}`;
-        })
-        .join("\n")
-    : "(nothing rated yet)";
+  // Note: `priorRatings` is intentionally NOT used here. The taste connection
+  // comes from the portrait (which is itself built from ratings + notes), so we
+  // don't feed the raw rated-song list into this prompt — that's what produced
+  // the "like that X you loved" callbacks the review should avoid.
+  const { portraitText, rec, directionLabel } = opts;
 
   const relationships = JSON.stringify(rec.relationships ?? {}, null, 2).slice(0, 500);
 
-  const systemPrompt = `You write the one review that convinces someone to press play. Not a summary, not a blurb — a persuasive, specific case for why THIS listener is about to fall for THIS track. Think of the best writer at a record shop who knows exactly what this person already loves.
+  const systemPrompt = `You write the one review that convinces someone to press play — a persuasive, specific case for why THIS track and THIS artist are worth their time, told through the lens of what this particular listener loves. Think of the best writer at a record shop who gets this person's taste and is genuinely excited to hand them something great.
 
 Write 140–200 words, second person. Break it into 2–3 short, organic paragraphs separated by a blank line — let it breathe rather than land as one dense block. No headers, no bullets, no title.
 
-How to make it land:
-- Open on the track, not on the user. Drop them into what the song actually does — a texture, a move, a moment, the feeling of the first thirty seconds — before you explain why it's for them.
-- Make the case a real critic would: name what's distinctive about this record and why it's good, not just that it exists. Give them something to listen FOR — where to enter, what to wait for, what rewards a second play.
-- Connect it to their taste the way a friend would — through the shape of what they respond to, not a checklist. Their portrait tells you the through-line; use it, don't quote it.
-- Reach back to a track they've rated ONLY when it genuinely sharpens the point ("this scratches the same itch as X, but colder"). One well-chosen callback beats three dutiful ones. If they left a note on a past track, that note is gold — echo the exact thing they cared about. Most sentences should be about the new track, not the old ones. Never recite their rating history.
+What to cover:
+- Why the TRACK is great: open on what the song actually does — a texture, a move, a moment, the feel of the first thirty seconds — and name what's distinctive about it. Give them something to listen FOR: where to enter, what to wait for, what rewards a second play.
+- Why the ARTIST is worth knowing: place them — what they're about, what they do that others don't, why they're a find worth following past this one song.
+- Why it fits THEM: connect it to the shape of their taste — the textures, moods, and instincts their portrait reveals — in your own words. Speak to the KIND of thing they respond to.
 
 Hard rules:
-- Only assert facts present in the verified metadata below. Do NOT invent release dates, labels, personnel, collaborations, chart history, or backstory. When MusicBrainz relationships support a specific claim ("produced by X", "same label as Y"), you may make it — but only then. When metadata is thin, spend the words on the sound and the fit, never on invented facts.
+- Do NOT name-drop the listener's own liked, seeded, or previously rated songs, and do NOT compare this track to them ("like that X you loved", "scratches the same itch as Y"). That callback game reads as cringe. Reference their taste as a sensibility, never as a list of past picks. The portrait is your guide to their taste — use it, don't quote it or itemize it.
+- Only assert facts present in the verified metadata below. Do NOT invent release dates, labels, personnel, collaborations, chart history, or backstory. When MusicBrainz relationships support a specific claim ("produced by X", "same label as Y"), you may make it — but only then. When metadata is thin, spend the words on the sound, the artist, and the fit, never on invented facts.
 - You may point to another track from the same album as a natural next step, but the pick itself is always this single track.
 - Write like a person with taste and a pulse. Banned on sight: "sonic," "soundscape," "sonic tapestry," "eclectic," "genre-defying," "musical journey," "auditory," "a masterclass in," "at its core," "if you love X you'll love Y," "perfect blend," and any sentence generic enough to sell a different song.`;
 
-  const userPrompt = `The listener's taste portrait (their through-line — use it, don't quote it):
+  const userPrompt = `The listener's taste portrait (their sensibility — use it as a guide, don't quote or itemize it):
 ${portraitText}
-
-Tracks they've already rated (draw on these only when one truly earns a mention; their notes are the sharpest signal):
-${ratingContext}
 
 Direction being explored: "${directionLabel}"
 
@@ -422,7 +410,7 @@ Year: ${rec.year ?? "unknown"}
 Verified MusicBrainz relationships (the ONLY facts you may assert):
 ${relationships}
 
-Write the review that makes them press play.`;
+Write the review that makes them press play — why this track is great, why this artist is worth knowing, and why it suits their taste.`;
 
   const narrative = await chat(NARRATE_MODEL, [
     { role: "system", content: systemPrompt },

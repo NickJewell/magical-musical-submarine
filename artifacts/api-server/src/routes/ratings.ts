@@ -3,6 +3,7 @@ import { db, ratingsTable, pathRatingsTable, focusRatingsTable, tasteEventsTable
 import { eq, desc, count, and } from "drizzle-orm";
 import { RateRecBody, RateStepBody } from "@workspace/api-zod";
 import { triggerPortraitRebuild } from "../lib/portraitGen";
+import { triggerTastingNoteGeneration } from "../lib/tastingNoteGen";
 
 const router: IRouter = Router();
 
@@ -77,6 +78,12 @@ router.post("/rate", async (req, res): Promise<void> => {
   const totalEvents = Number(ratingCountRows[0]?.cnt ?? 0);
   if (totalEvents > 0 && totalEvents % 3 === 0) {
     triggerPortraitRebuild(userId);
+  }
+
+  // Auto-generate tasting note once ≥3 tracks on this leg are rated (if none exists yet).
+  // The helper checks the count internally and is a no-op when the note already exists.
+  if (!step.tastingNote) {
+    triggerTastingNoteGeneration(rec.diveStepId);
   }
 
   res.status(201).json({

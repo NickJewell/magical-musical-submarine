@@ -8,7 +8,7 @@ import {
 } from '@/components/ui/dialog';
 import {
   Loader2, ChevronDown, ChevronUp, Star, ExternalLink,
-  Music, Radio, Check, Trash2, Sparkles, RefreshCw,
+  Music, Radio, Check, Trash2, RefreshCw, NotebookPen, ArrowRight,
 } from 'lucide-react';
 import { InlinePlayer, type ResolvedLinks } from '@/components/InlinePlayer';
 
@@ -79,7 +79,7 @@ async function fetchSpotifyStatus(userId: number): Promise<SpotifyStatus> {
   return r.json();
 }
 
-async function generateTastingNote(userId: number, diveStepId: number): Promise<{ tastingNote: string; tastingNoteAt: string }> {
+async function generateTrackNotes(userId: number, diveStepId: number): Promise<{ tastingNote: string; tastingNoteAt: string }> {
   const r = await fetch(`${basePath}/api/timeline/tasting-note`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -245,9 +245,9 @@ function SpotifyExportButton({
   );
 }
 
-// ---- Tasting note (per dive leg) ----
+// ---- Track notes (per dive leg) ----
 
-function TastingNote({
+function TrackNotes({
   path, userId, onGenerated,
 }: {
   path: DivePath;
@@ -256,6 +256,8 @@ function TastingNote({
 }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Collapsed by default — the note can be long, so keep the card compact until asked.
+  const [open, setOpen] = useState(false);
 
   // Any track heard/rated on this leg → generation is possible.
   const hasRatings = path.songs.some((s) => s.listenState || s.score !== null);
@@ -264,8 +266,9 @@ function TastingNote({
     setLoading(true);
     setError(null);
     try {
-      const d = await generateTastingNote(userId, path.diveStepId);
+      const d = await generateTrackNotes(userId, path.diveStepId);
       onGenerated(path.diveStepId, d.tastingNote, d.tastingNoteAt);
+      setOpen(true); // reveal a freshly generated note
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to generate');
     } finally {
@@ -276,10 +279,14 @@ function TastingNote({
   if (path.tastingNote) {
     return (
       <div className="mx-3 mb-1 mt-2 rounded-xl border border-primary/15 bg-primary/[0.04] px-3 py-2.5">
-        <div className="flex items-center justify-between mb-1">
-          <span className="flex items-center gap-1.5 text-[10px] font-mono text-primary/70 uppercase tracking-widest">
-            <Sparkles className="w-3 h-3" /> Tasting note
-          </span>
+        <div className="flex items-center justify-between">
+          <button
+            onClick={() => setOpen((o) => !o)}
+            className="flex items-center gap-1.5 text-[10px] font-mono text-primary/70 uppercase tracking-widest hover:text-primary transition-colors"
+          >
+            <NotebookPen className="w-3 h-3" /> Track Notes
+            {open ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+          </button>
           <button
             onClick={handleGenerate}
             disabled={loading}
@@ -289,7 +296,11 @@ function TastingNote({
             {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
           </button>
         </div>
-        <p className="text-xs font-serif leading-relaxed text-foreground/80">{path.tastingNote}</p>
+        {open && (
+          <p className="text-xs font-serif leading-relaxed text-foreground/80 mt-2 animate-in fade-in slide-in-from-top-1 duration-200">
+            {path.tastingNote}
+          </p>
+        )}
         {error && <p className="text-[10px] text-destructive mt-1">{error}</p>}
       </div>
     );
@@ -304,8 +315,8 @@ function TastingNote({
         disabled={loading}
         className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground/60 hover:text-primary transition-colors uppercase tracking-wide disabled:opacity-40"
       >
-        {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
-        {loading ? 'Tasting…' : 'What did we taste here?'}
+        {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <NotebookPen className="w-3 h-3" />}
+        {loading ? 'Writing…' : 'Write track notes'}
       </button>
       {error && <p className="text-[10px] text-destructive mt-1">{error}</p>}
     </div>
@@ -376,12 +387,18 @@ function PathCard({
             <SongRow key={s.recId} song={s} onOpen={onOpenSong} />
           ))}
 
-          {/* Tasting note */}
-          <TastingNote path={path} userId={userId} onGenerated={onTastingNote} />
+          {/* Track notes */}
+          <TrackNotes path={path} userId={userId} onGenerated={onTastingNote} />
 
           {/* Footer actions */}
-          <div className="flex items-center justify-between px-3 pt-2 pb-1">
+          <div className="flex items-center justify-between gap-3 px-3 pt-2 pb-1">
             <SpotifyExportButton userId={userId} diveStepId={path.diveStepId} spotify={spotify} />
+            <a
+              href={`${basePath}/dive/${path.diveId}`}
+              className="flex items-center gap-1 text-[10px] font-mono text-muted-foreground/60 hover:text-primary transition-colors uppercase tracking-wide shrink-0"
+            >
+              Continue diving <ArrowRight className="w-3 h-3" />
+            </a>
           </div>
         </div>
       )}

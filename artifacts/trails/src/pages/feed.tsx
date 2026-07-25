@@ -9,8 +9,27 @@ import {
 import { useLocalUser } from '@/lib/useLocalUser';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Loader2, Search, Check, ChevronDown, Rss } from 'lucide-react';
+import { Loader2, Search, Check, ChevronDown, ListPlus, Star } from 'lucide-react';
 import { cn } from '@/lib/utils';
+
+const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
+
+// Persist a star rating for a track at the point of addition. Keyed by
+// (userId, mbid) via the focus-rating upsert, so it flows into ELO, the
+// rankings screen, and the portrait pipeline like any other rating.
+async function saveStar(
+  userId: number, r: SearchResult, score: number,
+): Promise<void> {
+  if (!r.mbid) return; // unverified results have no stable id to key a rating on
+  await fetch(`${basePath}/api/focus-rating`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      userId, mbid: r.mbid, title: r.title, artist: r.artist,
+      listenState: 'known', score,
+    }),
+  }).catch(() => {/* rating is best-effort — never block the add */});
+}
 
 export default function FeedPage() {
   const { localUserId: userId, isLoading } = useLocalUser();
@@ -34,6 +53,7 @@ function FeedContent({ userId, onDone }: { userId: number; onDone: () => void })
   const [page, setPage]                 = useState(1);
   const [allResults, setAllResults]     = useState<SearchResult[]>([]);
   const [sessionAdded, setSessionAdded] = useState<SearchResult[]>([]);
+  const [sessionStars, setSessionStars] = useState<Record<string, number>>({}); // resultKey → 1-3
   const [justAdded, setJustAdded]       = useState<string | null>(null); // resultKey flash
   const [addError, setAddError]         = useState<string | null>(null);
   const [finishing, setFinishing]       = useState(false);
@@ -85,6 +105,9 @@ function FeedContent({ userId, onDone }: { userId: number; onDone: () => void })
         onSuccess: () => {
           queryClient.invalidateQueries({ queryKey: getListSeedsQueryKey({ userId }) });
           setSessionAdded(prev => [r, ...prev]);
+          // Default every added track to three stars, adjustable in the tray below.
+          setSessionStars(prev => ({ ...prev, [key]: 3 }));
+          saveStar(userId, r, 3);
           setJustAdded(key);
           setTimeout(() => setJustAdded(null), 1000);
           // Clear search so they're ready for the next track
@@ -139,11 +162,11 @@ function FeedContent({ userId, onDone }: { userId: number; onDone: () => void })
         {/* Header */}
         <div className="mb-7 text-center">
           <div className="flex items-center justify-center gap-2 mb-1.5">
-            <Rss className="w-3.5 h-3.5 text-primary/50" />
-            <span className="text-[10px] font-mono text-primary/50 uppercase tracking-widest">Feed the graph</span>
+            <ListPlus className="w-3.5 h-3.5 text-primary/50" />
+            <span className="text-[10px] font-mono text-primary/50 uppercase tracking-widest">Rank tracks</span>
           </div>
           <p className="text-muted-foreground/50 text-sm">
-            Search and add tracks. Hit done when you're finished.
+            Search, add, and star tracks you know. Hit done when you're finished.
           </p>
         </div>
 
@@ -167,23 +190,48 @@ function FeedContent({ userId, onDone }: { userId: number; onDone: () => void })
               Added this session · {sessionAdded.length}
             </p>
             <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
-              {sessionAdded.map((r) => (
-                <div
-                  key={r.mbid}
-                  className="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-primary/5 border border-primary/15"
-                >
-                  <div className="w-5 h-5 rounded-full bg-primary/20 flex items-center justify-center shrink-0">
-                    <Check className="w-3 h-3 text-primary" />
+              {sessionAdded.map((r) => {
+                const key = resultKey(r);
+                const star = sessionStars[key] ?? 3;
+                return (
+                  <div
+                    key={key}
+                    className="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-primary/5 border border-primary/15"
+                  >
+                    <div className="w-5 h-5 rounded-full bg-primary/20 flex items-center justify-center shrink-0">
+                      <Check className="w-3 h-3 text-primary" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-foreground truncate leading-tight">{r.title}</p>
+                      <p className="text-xs text-muted-foreground/60 truncate">{r.artist}</p>
+                    </div>
+                    {r.mbid ? (
+                      <div className="flex items-center gap-0.5 shrink-0">
+                        {[1, 2, 3].map((s) => (
+                          <button
+                            key={s}
+                            onClick={() => {
+                              setSessionStars((prev) => ({ ...prev, [key]: s }));
+                              saveStar(userId, r, s);
+                            }}
+                            className="p-0.5 transition-transform hover:scale-110"
+                            title={`${s}/3`}
+                          >
+                            <Star
+                              className={cn(
+                                'w-4 h-4 transition-colors',
+                                s <= star ? 'fill-amber-400 text-amber-400' : 'fill-transparent text-muted-foreground/30',
+                              )}
+                            />
+                          </button>
+                        ))}
+                      </div>
+                    ) : r.year ? (
+                      <span className="text-[10px] font-mono text-muted-foreground/40 shrink-0">{r.year}</span>
+                    ) : null}
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-foreground truncate leading-tight">{r.title}</p>
-                    <p className="text-xs text-muted-foreground/60 truncate">{r.artist}</p>
-                  </div>
-                  {r.year && (
-                    <span className="text-[10px] font-mono text-muted-foreground/40 shrink-0">{r.year}</span>
-                  )}
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}

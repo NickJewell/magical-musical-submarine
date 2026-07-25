@@ -46,18 +46,23 @@ export async function recommend(opts: { stepId: number; userId: number }) {
 
   const portraitText = portraits[0]?.text ?? "A music lover exploring new sounds.";
 
-  // Build prior ratings context
+  // Build prior ratings context — the user's recent rating history across ALL
+  // their dives (not just this step), including any notes they left. This gives
+  // the narrator real material to draw on when a past track illuminates why the
+  // new one fits — rather than an almost-always-empty same-step list.
   const priorRatings = await db
     .select({
-      recId: recommendationsTable.id,
       title: recommendationsTable.title,
       artist: recommendationsTable.artist,
       listenState: ratingsTable.listenState,
       score: ratingsTable.score,
+      reviewText: ratingsTable.reviewText,
     })
     .from(ratingsTable)
     .innerJoin(recommendationsTable, eq(ratingsTable.recId, recommendationsTable.id))
-    .where(eq(recommendationsTable.diveStepId, stepId))
+    .innerJoin(diveStepsTable, eq(recommendationsTable.diveStepId, diveStepsTable.id))
+    .innerJoin(divesTable, eq(diveStepsTable.diveId, divesTable.id))
+    .where(eq(divesTable.userId, userId))
     .orderBy(desc(ratingsTable.ratedAt))
     .limit(20)
     .catch(() => []);
@@ -67,6 +72,7 @@ export async function recommend(opts: { stepId: number; userId: number }) {
     artist: r.artist,
     listenState: r.listenState,
     score: r.score != null ? parseFloat(String(r.score)) : null,
+    reviewText: r.reviewText ?? null,
   }));
 
   // Enrich with Last.fm

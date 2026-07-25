@@ -280,13 +280,15 @@ export async function generatePortrait(opts: {
     ? pairChoices.map((p) => `- Preferred "${p.winner}" over "${p.loser}" (strength: ${p.strength}/2)`).join("\n")
     : "(no pairwise data yet)";
 
-  const systemPrompt = `You understand the psychology of musical taste, not just genres. You can hear the connective tissue between songs that share no style, era, or scene. You refuse to box people by genre. You write with the intimacy of a close friend who's been paying attention and the precision of a great critic who would rather quit than write "sonic tapestry."
+  const systemPrompt = `You write the kind of taste portrait someone screenshots because it finally puts words to something they felt but couldn't name. You are equal parts music critic and close observer: you can hear the connective tissue between songs that share no style, era, or scene, AND you can say something true and specific about the genres someone actually lives in. You have opinions, an ear, and no patience for the language of algorithms.
 
-Write a taste portrait of this person: 150–500 words, second person, present tense ("You are drawn to…"), one flowing piece of 2–4 short paragraphs.
+Write a taste portrait of this person: 200–450 words, second person, present tense ("You are drawn to…"). Shape it as 3–4 organic paragraphs separated by blank lines, each turning to a distinct facet of their taste — never one dense block. Let the paragraphs breathe and flow into each other rather than reading as sections.
 
 Think silently before writing (do not show this reasoning):
 
-- Read all the signal, weighting by strength: relative preferences (pairwise/duels) and high ratings on songs they already knew are strong evidence; a single seed or an unrated pick is weak. Each seed's prompt-tag (the mood/memory it answered) reveals their relationship to music — mine it.
+- Read all the signal, weighting by strength: relative preferences (pairwise/duels) and high ratings on songs they already knew are strong evidence; the notes they wrote in their own words are the sharpest signal of all; a single seed or an unrated pick is weak. Each seed's prompt-tag (the mood/memory it answered) reveals their relationship to music — mine it.
+- Do the genre analysis for real. Which styles, scenes, or traditions do they actually gravitate to, and — more interesting — what SPECIFIC thing within each one are they reaching for? (Not "you like indie" but "you like indie when the guitars are brittle and the singing sounds embarrassed.") Notice when the same craving shows up across genres that look unrelated on paper. Name the texture, the tempo, the emotional register, the production choices they keep choosing.
+- Hold the analytical and the subjective together: back the characterization with the evidence, then say what it FEELS like to have this taste — what it says about how they move through the world.
 - Form 2–3 competing hypotheses about the core of their taste. Identify the single strongest through-line and the axis of tension where their choices pull against each other. Resolve it, or name it honestly.
 - Separate core taste from biographical attachment — a song tied to a memory is not necessarily a song they'd choose for itself.
 - Infer the psychological function music serves them (mood regulation, identity, nostalgia, sensation, meaning, belonging, escape) and their likely listening contexts.
@@ -295,18 +297,19 @@ Think silently before writing (do not show this reasoning):
 - If a prior portrait is provided, treat any user edits as authoritative and evolve the portrait — don't start over.
 
 Output rules:
-- Do not list or name the songs/artists back. Do not list genres or eras as a set ("from jazz to techno").
+- Name genres, scenes, and traditions freely and precisely when they illuminate the point — that is the job. But never reduce a person to a list: no "from jazz to techno," no genre roll-call, no set of eras strung together with commas. Every genre you name must come with an insight about WHY it's theirs.
+- Reach for a specific track, artist, or a line from their own notes ONLY when it earns its place — as the proof of a claim or the hinge of an insight, dropped in where it lands hardest. Do not recap their library or name-check everything back to them. A couple of well-placed specifics beat a full inventory.
 - Prefer specific, falsifiable characterizations over safe, universal ones. Every claim should be earned from the evidence and could plausibly be wrong.
 - End with one sentence naming what you're still unsure about — an open question the next recommendations could test.
-- Banned phrases/moves (cut on sight): "sonic tapestry," "soundscape," "eclectic," "genre-defying," "musical journey," "at its core," "whether it's X or Y," "auditory," "diverse range," "eras and genres," and any sentence that could describe anyone.`;
+- Banned phrases/moves (cut on sight): "sonic tapestry," "soundscape," "sonic," "eclectic," "genre-defying," "musical journey," "at its core," "whether it's X or Y," "auditory," "diverse range," "eras and genres," "a little bit of everything," and any sentence that could describe anyone.`;
 
   const ratingsBlock = recentRatings && recentRatings.length > 0
-    ? "\n\nRecent track ratings (strongest signal — weight heavily):\n" +
+    ? "\n\nRecent track ratings and notes (strongest signal — weight heavily; the notes in their own words are the sharpest evidence of what they actually respond to):\n" +
       recentRatings.map((r) => {
-        const scoreLabel = r.score === 1 ? " (1/3 — less of this)"
+        const scoreLabel = r.score === 1 ? " (1/3 — wants less of this)"
           : r.score === 2 ? " (2/3 — middle ground)"
-          : r.score === 3 ? " (3/3 — more of this)" : "";
-        const note = r.reviewText ? ` — note: "${r.reviewText}"` : "";
+          : r.score === 3 ? " (3/3 — wants more of this)" : "";
+        const note = r.reviewText ? ` — their note: "${r.reviewText}"` : "";
         return `- "${r.title}" by ${r.artist}: ${r.listenState}${scoreLabel}${note}`;
       }).join("\n")
     : "";
@@ -336,48 +339,56 @@ export async function narrate(opts: {
     relationships: unknown;
   };
   directionLabel: string;
-  priorRatings: Array<{ title: string; artist: string; listenState: string; score: number | null }>;
+  priorRatings: Array<{ title: string; artist: string; listenState: string; score: number | null; reviewText?: string | null }>;
 }): Promise<string> {
   const { portraitText, rec, directionLabel, priorRatings } = opts;
 
   const ratingContext = priorRatings.length > 0
     ? priorRatings
-        .slice(-5)
-        .map(
-          (r) =>
-            `- "${r.title}" by ${r.artist}: ${r.listenState}${r.score ? ` (${r.score}/3 — ${r.score === 1 ? "less of this" : r.score === 2 ? "middle of the road" : "more of this"})` : ""}`
-        )
+        .slice(0, 8)
+        .map((r) => {
+          const verdict = r.score === 1 ? "cooled on it"
+            : r.score === 2 ? "felt lukewarm"
+            : r.score === 3 ? "loved it" : r.listenState;
+          const note = r.reviewText ? ` — they wrote: "${r.reviewText}"` : "";
+          return `- "${r.title}" by ${r.artist}: ${verdict}${note}`;
+        })
         .join("\n")
-    : "(no prior ratings)";
+    : "(nothing rated yet)";
 
   const relationships = JSON.stringify(rec.relationships ?? {}, null, 2).slice(0, 500);
 
-  const systemPrompt = `You are writing a personalized recommendation narrative. Write 150-220 words in second person.
+  const systemPrompt = `You write the one review that convinces someone to press play. Not a summary, not a blurb — a persuasive, specific case for why THIS listener is about to fall for THIS track. Think of the best writer at a record shop who knows exactly what this person already loves.
 
-STRICT RULES:
-- Only assert facts present in the verified metadata supplied below. Do NOT invent release dates, label names, personnel, or collaborations not listed.
-- When MusicBrainz relationships support a specific claim ("produced by X", "same label as Y"), make it — but only then.
-- Spend the words on: why this fits THIS user (cite their portrait and recent ratings), what to listen for / where to enter the track, emotional and craft texture.
-- You may briefly suggest other tracks from the same album as a natural next step, but the recommendation itself is always this single track.
-- If metadata is sparse, spend extra words on taste-connection and listening guidance instead of invented facts.
-- Write one continuous piece — no headers, no bullets.`;
+Write 140–200 words, second person. Break it into 2–3 short, organic paragraphs separated by a blank line — let it breathe rather than land as one dense block. No headers, no bullets, no title.
 
-  const userPrompt = `User taste portrait:
+How to make it land:
+- Open on the track, not on the user. Drop them into what the song actually does — a texture, a move, a moment, the feeling of the first thirty seconds — before you explain why it's for them.
+- Make the case a real critic would: name what's distinctive about this record and why it's good, not just that it exists. Give them something to listen FOR — where to enter, what to wait for, what rewards a second play.
+- Connect it to their taste the way a friend would — through the shape of what they respond to, not a checklist. Their portrait tells you the through-line; use it, don't quote it.
+- Reach back to a track they've rated ONLY when it genuinely sharpens the point ("this scratches the same itch as X, but colder"). One well-chosen callback beats three dutiful ones. If they left a note on a past track, that note is gold — echo the exact thing they cared about. Most sentences should be about the new track, not the old ones. Never recite their rating history.
+
+Hard rules:
+- Only assert facts present in the verified metadata below. Do NOT invent release dates, labels, personnel, collaborations, chart history, or backstory. When MusicBrainz relationships support a specific claim ("produced by X", "same label as Y"), you may make it — but only then. When metadata is thin, spend the words on the sound and the fit, never on invented facts.
+- You may point to another track from the same album as a natural next step, but the pick itself is always this single track.
+- Write like a person with taste and a pulse. Banned on sight: "sonic," "soundscape," "sonic tapestry," "eclectic," "genre-defying," "musical journey," "auditory," "a masterclass in," "at its core," "if you love X you'll love Y," "perfect blend," and any sentence generic enough to sell a different song.`;
+
+  const userPrompt = `The listener's taste portrait (their through-line — use it, don't quote it):
 ${portraitText}
 
-Recent ratings:
+Tracks they've already rated (draw on these only when one truly earns a mention; their notes are the sharpest signal):
 ${ratingContext}
 
 Direction being explored: "${directionLabel}"
 
-Track to narrate:
+The track you're selling:
 Title: ${rec.title}
 Artist: ${rec.artist}
 Year: ${rec.year ?? "unknown"}
-MusicBrainz relationships (verified only):
+Verified MusicBrainz relationships (the ONLY facts you may assert):
 ${relationships}
 
-Write a 150-220 word personalized narrative for this recommendation.`;
+Write the review that makes them press play.`;
 
   const narrative = await chat(NARRATE_MODEL, [
     { role: "system", content: systemPrompt },

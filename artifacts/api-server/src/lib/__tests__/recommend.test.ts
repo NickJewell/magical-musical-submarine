@@ -36,6 +36,8 @@ vi.mock("@workspace/db", () => {
 
 vi.mock("../enrich.js", () => ({
   enrichFromSeeds: vi.fn(),
+  enrichFromFocus: vi.fn(),
+  lastfmTopTrack: vi.fn(),
 }));
 
 vi.mock("../musicbrainz.js", () => ({
@@ -65,7 +67,7 @@ vi.mock("../logger.js", () => ({
 // ---------------------------------------------------------------------------
 
 import { db } from "@workspace/db";
-import { enrichFromSeeds } from "../enrich.js";
+import { enrichFromSeeds, lastfmTopTrack } from "../enrich.js";
 import { resolve } from "../musicbrainz.js";
 import { resolveLinks } from "../links.js";
 import { propose, narrate } from "../llm.js";
@@ -216,6 +218,8 @@ function buildInsertChain(returnedRows: unknown[]) {
  *  3. load seeds           → mockSeeds   awaited directly
  *  4. load portraits       → [portrait]  ends with .orderBy().limit(1)
  *  5. load prior ratings   → []          ends with .limit(20).catch()
+ *  6. well-trodden dedup   → []          buildWellTroddenRec's priorWt query,
+ *                                         ends with .innerJoin().where().catch()
  */
 function setupDbSelectSequence(overrides?: { existingRecs?: unknown[] }) {
   const existing = overrides?.existingRecs ?? [];
@@ -225,6 +229,7 @@ function setupDbSelectSequence(overrides?: { existingRecs?: unknown[] }) {
     .mockReturnValueOnce(buildSelectChain([mockStep]))
     .mockReturnValueOnce(buildSelectChain(mockSeeds))
     .mockReturnValueOnce(buildSelectChain(mockPortraits))
+    .mockReturnValueOnce(buildSelectChain([]))
     .mockReturnValueOnce(buildSelectChain([]));
 }
 
@@ -235,6 +240,9 @@ function setupEnrich() {
     tags: [],
     wellTroddenArtist: null,
   });
+  // buildWellTroddenRec calls lastfmTopTrack(); default to no top track so it
+  // falls through to the similar-tracks/artists scoring path.
+  vi.mocked(lastfmTopTrack).mockResolvedValue(null);
 }
 
 function setupLinks() {

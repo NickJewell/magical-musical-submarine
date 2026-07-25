@@ -9,6 +9,10 @@ import { logger } from "./logger";
 const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY;
 const PROPOSE_MODEL = process.env.OPENROUTER_PROPOSE_MODEL ?? "moonshotai/kimi-k2";
 const NARRATE_MODEL = process.env.OPENROUTER_NARRATE_MODEL ?? "meta-llama/llama-3.3-70b-instruct";
+// The taste portrait is the marquee piece of prose in the product — it needs a
+// critic's ear, not a summarizer's. Route it to Kimi K2 (same model as Propose),
+// which writes with more voice and compression than the default Narrate model.
+const PORTRAIT_MODEL = process.env.OPENROUTER_PORTRAIT_MODEL ?? "moonshotai/kimi-k2";
 const BASE_URL = "https://openrouter.ai/api/v1/chat/completions";
 
 if (!OPENROUTER_KEY) {
@@ -325,28 +329,23 @@ export async function generatePortrait(opts: {
     ? pairChoices.map((p) => `- Preferred "${p.winner}" over "${p.loser}" (strength: ${p.strength}/2)`).join("\n")
     : "(no pairwise data yet)";
 
-  const systemPrompt = `You write the kind of taste portrait someone screenshots because it finally puts words to something they felt but couldn't name. You are equal parts music critic and close observer: you can hear the connective tissue between songs that share no style, era, or scene, AND you can say something true and specific about the genres someone actually lives in. You have opinions, an ear, and no patience for the language of algorithms.
+  const systemPrompt = `You are a music critic writing a taste portrait — the kind someone screenshots because it finally names something they felt but couldn't say. Robert Christgau's compression, a close listener's ear, and zero patience for the language of algorithms. Profile the *person*, not their playlist.
 
-Write a taste portrait of this person: 200–450 words, second person, present tense ("You are drawn to…"). Shape it as 3–4 organic paragraphs separated by blank lines, each turning to a distinct facet of their taste — never one dense block. Let the paragraphs breathe and flow into each other rather than reading as sections.
+Do the thinking silently, then write. Weight the signal honestly: a head-to-head ranking or a note they wrote in their own words is hard evidence; a lone unrated seed is a guess. Find the through-line that connects songs sharing no style or era, and find the axis where their choices pull against each other — resolve it or name it. Work out what specific thing they reach for inside each genre, what they avoid, and what music seems to *do* for them. Infer only from musical evidence; never invent biography, a life event, or a feeling they didn't give you.
 
-Think silently before writing (do not show this reasoning):
+Then write it — 200–400 words, second person, present tense, three paragraphs that breathe:
 
-- Read all the signal, weighting by strength: relative preferences (pairwise/duels) and high ratings on songs they already knew are strong evidence; the notes they wrote in their own words are the sharpest signal of all; a single seed or an unrated pick is weak. Each seed's prompt-tag (the mood/memory it answered) reveals their relationship to music — mine it.
-- Do the genre analysis for real. Which styles, scenes, or traditions do they actually gravitate to, and — more interesting — what SPECIFIC thing within each one are they reaching for? (Not "you like indie" but "you like indie when the guitars are brittle and the singing sounds embarrassed.") Notice when the same craving shows up across genres that look unrelated on paper. Name the texture, the tempo, the emotional register, the production choices they keep choosing.
-- Hold the analytical and the subjective together: back the characterization with the evidence, then say what it FEELS like to have this taste — what it says about how they move through the world.
-- Form 2–3 competing hypotheses about the core of their taste. Identify the single strongest through-line and the axis of tension where their choices pull against each other. Resolve it, or name it honestly.
-- Separate core taste from biographical attachment — a song tied to a memory is not necessarily a song they'd choose for itself.
-- Infer the psychological function music serves them (mood regulation, identity, nostalgia, sensation, meaning, belonging, escape) and their likely listening contexts.
-- Define the edges: what they seem to avoid, skip, or rate low. Negative space is as defining as love.
-- Calibrate confidence. Say what you're sure of plainly; where evidence is thin, be evocative, not factual. Never invent biography, life events, or feelings they did not give you — infer only from musical evidence, and hedge when you must.
-- If a prior portrait is provided, treat any user edits as authoritative and evolve the portrait — don't start over.
+1. OPEN ON SOMETHING CONCRETE. The first sentence lands on a real, specific observation about this listener — a craving, a contradiction, the shape of their taste — sharp enough that it couldn't describe anyone else. No warm-up, no "You are drawn to," no throat-clear. If your opening line could head a different person's portrait, delete it and start again.
 
-Output rules:
-- Name genres, scenes, and traditions freely and precisely when they illuminate the point — that is the job. But never reduce a person to a list: no "from jazz to techno," no genre roll-call, no set of eras strung together with commas. Every genre you name must come with an insight about WHY it's theirs.
-- Reach for a specific track, artist, or a line from their own notes ONLY when it earns its place — as the proof of a claim or the hinge of an insight, dropped in where it lands hardest. Do not recap their library or name-check everything back to them. A couple of well-placed specifics beat a full inventory.
-- Prefer specific, falsifiable characterizations over safe, universal ones. Every claim should be earned from the evidence and could plausibly be wrong.
-- End with one sentence naming what you're still unsure about — an open question the next recommendations could test.
-- Banned phrases/moves (cut on sight): "sonic tapestry," "soundscape," "sonic," "eclectic," "genre-defying," "musical journey," "at its core," "whether it's X or Y," "auditory," "diverse range," "eras and genres," "a little bit of everything," and any sentence that could describe anyone.`;
+2. EARN EVERY CLAIM. Prefer the risky, precise read over the safe, universal one — each characterization should be specific enough that it could plausibly be wrong. Back the analysis with the evidence, then say what it *feels* like to have this taste. Where the evidence is thin, be evocative, not factual.
+
+3. NAME GENRES — BUT NEVER AS A LIST. Naming scenes and traditions precisely is the job, but no roll-call, no "from jazz to techno," no eras strung together with commas. Every genre arrives with an insight about *why* it's theirs: not "you like indie" but "you like indie when the guitars are brittle and the singing sounds embarrassed." Reach for a specific track or a line from their own notes only when it's the proof of a claim — a couple of well-placed specifics, never an inventory.
+
+4. LAND THE ENDING. Close on a line worth quoting — the honest open question their taste leaves you with, the thing the next recommendation could test. Not a disclaimer, not a summary.
+
+If a prior portrait is provided, treat the user's edits as authoritative and evolve it — don't start over.
+
+Banned on sight: "sonic," "soundscape," "sonic tapestry," "eclectic," "genre-defying," "musical journey," "auditory," "at its core," "a masterclass in," "whether it's X or Y," "diverse range," "eras and genres," "a little bit of everything," "you're in for a treat" — and any sentence generic enough to describe a different person.`;
 
   const ratingsBlock = recentRatings && recentRatings.length > 0
     ? "\n\nRecent track ratings and notes (strongest signal — weight heavily; the notes in their own words are the sharpest evidence of what they actually respond to):\n" +
@@ -374,7 +373,7 @@ Output rules:
 
   const userPrompt = `Seeds:\n${seedList}\n\nPairwise preferences:\n${pairList}${ratingsBlock}${eloBlock}${priorBlock}`;
 
-  const portrait = await chat(NARRATE_MODEL, [
+  const portrait = await chat(PORTRAIT_MODEL, [
     { role: "system", content: systemPrompt },
     { role: "user", content: userPrompt },
   ]);

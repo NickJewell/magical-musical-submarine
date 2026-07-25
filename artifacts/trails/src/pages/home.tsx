@@ -236,33 +236,6 @@ function HomeContent({ userId, onNavigate }: { userId: number; onNavigate: (path
             </div>
           )}
 
-          {/* Active dive card */}
-          {state.activeDiveId && (
-            <div className="space-y-4 p-6 rounded-2xl bg-secondary/40 border border-border/50">
-              <h3 className="text-sm font-mono text-primary uppercase tracking-widest flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
-                Active Dive
-              </h3>
-              <InlineDiveRename
-                diveId={state.activeDiveId}
-                userId={userId}
-                name={state.activeDiveName ?? 'Untitled dive'}
-                onRenamed={(newName) =>
-                  queryClient.setQueryData<AppState>(
-                    getGetStateQueryKey({ userId }),
-                    (old) => old ? { ...old, activeDiveName: newName } : old,
-                  )
-                }
-              />
-              <Button
-                onClick={() => onNavigate(`/dive/${state.activeDiveId}`)}
-                className="w-full bg-primary text-primary-foreground hover:bg-primary/90 rounded-full h-12 mt-4"
-              >
-                Continue dive
-              </Button>
-            </div>
-          )}
-
           <Button
             onClick={handleNewDive}
             variant="outline"

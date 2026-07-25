@@ -23,6 +23,42 @@ router.get("/deezer-preview", async (req, res): Promise<void> => {
   res.json(result); // { deezerId, previewUrl }
 });
 
+// GET /api/audio-proxy?url=<encoded-deezer-cdn-url>
+// Server-side proxy for Deezer 30s preview MP3s — avoids browser CORS restrictions.
+router.get("/audio-proxy", async (req, res): Promise<void> => {
+  const url = String(req.query.url ?? "").trim();
+  // Only proxy Deezer CDN preview URLs
+  let parsed: URL;
+  try { parsed = new URL(url); } catch { res.status(400).json({ error: "Invalid URL" }); return; }
+  if (!parsed.hostname.endsWith("dzcdn.net")) {
+    res.status(403).json({ error: "Only Deezer CDN URLs are proxied" });
+    return;
+  }
+  try {
+    const upstream = await fetch(url, { headers: { "User-Agent": "Trails/1.0" } });
+    if (!upstream.ok) { res.status(upstream.status).end(); return; }
+    res.setHeader("Content-Type", upstream.headers.get("Content-Type") ?? "audio/mpeg");
+    res.setHeader("Cache-Control", "public, max-age=3600");
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    if (!upstream.body) { res.status(502).end(); return; }
+    // Stream the response
+    const reader = (upstream.body as unknown as ReadableStream<Uint8Array>).getReader();
+    const pump = async () => {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) { res.end(); break; }
+        if (!res.write(Buffer.from(value))) {
+          await new Promise<void>((r) => res.once("drain", r));
+        }
+      }
+    };
+    await pump();
+  } catch (err) {
+    logger.warn({ err, url }, "audio-proxy fetch failed");
+    if (!res.headersSent) res.status(502).end();
+  }
+});
+
 // GET /api/duel/next?userId=&strategy=
 router.get("/duel/next", async (req, res): Promise<void> => {
   const userId = parseInt(String(req.query.userId), 10);

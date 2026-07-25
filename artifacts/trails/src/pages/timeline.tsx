@@ -10,7 +10,7 @@ import {
   Loader2, ChevronDown, ChevronUp, Star, ExternalLink,
   Music, Radio, Check, Trash2, RefreshCw, NotebookPen, ArrowRight,
 } from 'lucide-react';
-import { InlinePlayer, type ResolvedLinks } from '@/components/InlinePlayer';
+import { TrackPreviewPill } from '@/components/TrackPreviewPill';
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
 
@@ -29,18 +29,6 @@ interface Song {
   arm: string;
   linksJson: Record<string, unknown> | null;
   narrativeText: string | null;
-}
-
-/** Extract embed IDs from stored linksJson (may be absent on old recs). */
-function linksToResolved(linksJson: Record<string, unknown> | null): ResolvedLinks | null {
-  if (!linksJson) return null;
-  return {
-    spotify:        (linksJson.spotify        as string | null) ?? null,
-    youtube:        (linksJson.youtube        as string | null) ?? null,
-    spotifyTrackId: (linksJson.spotifyTrackId as string | null) ?? null,
-    youtubeVideoId: (linksJson.youtubeVideoId as string | null) ?? null,
-    deezerId:       (linksJson.deezerId       as string | null) ?? null,
-  };
 }
 
 interface PathSummary { count: number; avgScore: number | null; newCount: number }
@@ -368,7 +356,7 @@ function PathCard({
         <button
           onClick={(e) => { e.stopPropagation(); onRequestDelete(path); }}
           title="Delete this path"
-          className="shrink-0 mt-0.5 text-muted-foreground/25 hover:text-destructive transition-colors opacity-0 group-hover/card:opacity-100 focus:opacity-100"
+          className="shrink-0 mt-0.5 text-muted-foreground/30 hover:text-destructive transition-colors"
         >
           <Trash2 className="w-3.5 h-3.5" />
         </button>
@@ -478,36 +466,8 @@ function SongDetail({
   const [score, setScore]             = useState<number | null>(song.score);
   const [saved, setSaved]             = useState(false);
 
-  // ── Link resolution state ──
-  const [resolvedLinks, setResolvedLinks] = useState<ResolvedLinks | null>(
-    () => linksToResolved(song.linksJson),
-  );
-  const [isLoadingLinks, setIsLoadingLinks] = useState(false);
-  const [playerActive, setPlayerActive]     = useState(false);
-
-  // Artwork: from links fetch > DB artwork_url column
-  const artworkUrl =
-    (resolvedLinks as (ResolvedLinks & { artworkUrl?: string | null }) | null)?.artworkUrl ??
-    song.artworkUrl;
-
-  const handleNeedLinks = useCallback(async () => {
-    if (isLoadingLinks) return;
-    const hasEmbedIds = !!(resolvedLinks?.spotifyTrackId || resolvedLinks?.youtubeVideoId);
-    if (hasEmbedIds) return;
-    setIsLoadingLinks(true);
-    try {
-      const params = new URLSearchParams({
-        mbid: song.mbid, type: song.type, title: song.title, artist: song.artist,
-      });
-      const r = await fetch(`${basePath}/api/links?${params}`);
-      if (r.ok) {
-        const data = await r.json();
-        setResolvedLinks(data);
-      }
-    } finally {
-      setIsLoadingLinks(false);
-    }
-  }, [song.mbid, song.type, song.title, song.artist, resolvedLinks, isLoadingLinks]);
+  // Artwork from DB column
+  const artworkUrl = song.artworkUrl;
 
   const rateRec = useRateRec();
   const showStars = listenState === 'listened' || listenState === 'known';
@@ -567,18 +527,8 @@ function SongDetail({
           </div>
         </DialogHeader>
 
-        {/* ── Inline player ── */}
-        <InlinePlayer
-          recId={song.recId}
-          links={resolvedLinks}
-          isLoadingLinks={isLoadingLinks}
-          onNeedLinks={handleNeedLinks}
-          activeRecId={playerActive ? song.recId : null}
-          onActivate={(id) => {
-            setPlayerActive(id !== null);
-            if (id !== null) handleNeedLinks();
-          }}
-        />
+        {/* ── Preview pill ── */}
+        <TrackPreviewPill title={song.title} artist={song.artist} />
 
         {/* ── Rating section ── */}
         <div className="space-y-3 border border-border/30 rounded-xl p-3 bg-secondary/10">

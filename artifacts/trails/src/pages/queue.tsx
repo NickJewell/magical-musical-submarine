@@ -4,13 +4,13 @@ import { useQueryClient } from '@tanstack/react-query';
 import { 
   useGetRecommendations, useResolveLinks, useRateRec, useRateStep, useLoadDive,
   getLoadDiveQueryKey, getResolveLinksQueryKey, getGetPortraitQueryKey,
-  type Recommendation
+  type Recommendation,
 } from '@workspace/api-client-react';
 import { useLocalUser } from '@/lib/useLocalUser';
 import { Button } from '@/components/ui/button';
 import { Loader2, Play, Star, Anchor } from 'lucide-react';
 import { InlineDiveRename } from '@/components/InlineDiveRename';
-import { InlinePlayer, type ResolvedLinks } from '@/components/InlinePlayer';
+import { TrackPreviewPill } from '@/components/TrackPreviewPill';
 import { SiSpotify, SiYoutube } from 'react-icons/si';
 
 export default function QueuePage() {
@@ -42,7 +42,6 @@ function QueueContent({ userId, diveId, onNavigate }: { userId: number, diveId: 
 
   const [hasStartedFetch, setHasStartedFetch] = useState(false);
   const [ratedCount, setRatedCount] = useState(0);
-  const [activeRecId, setActiveRecId] = useState<number | null>(null);
   const getRecommendations = useGetRecommendations();
 
   // Invalidate portrait query 6 s after every 3rd rating — gives server time to regenerate
@@ -164,7 +163,7 @@ function QueueContent({ userId, diveId, onNavigate }: { userId: number, diveId: 
       ) : (
         <div className="space-y-8">
           {llmRecs.map(rec => (
-            <RecCard key={rec.id} rec={rec} userId={userId} onRated={() => setRatedCount(c => c + 1)} activeRecId={activeRecId} onActivate={setActiveRecId} />
+            <RecCard key={rec.id} rec={rec} userId={userId} onRated={() => setRatedCount(c => c + 1)} />
           ))}
         </div>
       )}
@@ -177,7 +176,7 @@ function QueueContent({ userId, diveId, onNavigate }: { userId: number, diveId: 
             <div className="h-px bg-border flex-1" />
           </div>
           {controlRecs.map(rec => (
-            <RecCard key={rec.id} rec={rec} userId={userId} onRated={() => setRatedCount(c => c + 1)} activeRecId={activeRecId} onActivate={setActiveRecId} />
+            <RecCard key={rec.id} rec={rec} userId={userId} onRated={() => setRatedCount(c => c + 1)} />
           ))}
         </div>
       )}
@@ -195,18 +194,15 @@ function QueueContent({ userId, diveId, onNavigate }: { userId: number, diveId: 
 
 const REVIEW_MAX = 500;
 
-function RecCard({ rec, userId, onRated, activeRecId, onActivate }: {
+function RecCard({ rec, userId, onRated }: {
   rec: Recommendation, userId: number, onRated: () => void,
-  activeRecId: number | null, onActivate: (id: number | null) => void,
 }) {
   const [links, setLinks] = useState(rec.linksJson);
-  // Eagerly fetch links (for artwork) when the rec has none, but stagger by card index
-  // to avoid blasting Odesli with parallel requests and hitting rate limits.
+  // Eagerly fetch links (for artwork) when the rec has none
   const [shouldFetchLinks, setShouldFetchLinks] = useState(false);
   useEffect(() => {
     if (rec.artworkUrl) return; // already have artwork — no eager fetch needed
-    const delay = (activeRecId === null ? 0 : 200); // only stagger when not in player mode
-    const t = setTimeout(() => setShouldFetchLinks(true), delay);
+    const t = setTimeout(() => setShouldFetchLinks(true), 0);
     return () => clearTimeout(t);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -240,8 +236,6 @@ function RecCard({ rec, userId, onRated, activeRecId, onActivate }: {
   const [review, setReview] = useState('');
   const [reviewSaved, setReviewSaved] = useState(false);
   const rateRec = useRateRec();
-
-  const handleResolveLinks = () => { setShouldFetchLinks(true); };
 
   const handleRate = (state: string, newScore: number | null) => {
     setListenState(state);
@@ -297,15 +291,8 @@ function RecCard({ rec, userId, onRated, activeRecId, onActivate }: {
       )}
 
       <div className="pt-2 space-y-3">
-        {/* Inline player — lazy: nothing loads until ▶ is tapped */}
-        <InlinePlayer
-          recId={rec.id}
-          links={links as ResolvedLinks | null}
-          isLoadingLinks={isResolvingLinks}
-          onNeedLinks={handleResolveLinks}
-          activeRecId={activeRecId}
-          onActivate={onActivate}
-        />
+        {/* Preview pill */}
+        <TrackPreviewPill title={rec.title} artist={rec.artist} />
 
         {/* Deep-link buttons — "open in app" for real listening / saving */}
         {links && (links.spotify || links.youtube) && (

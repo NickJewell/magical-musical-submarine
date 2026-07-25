@@ -4,7 +4,7 @@ import { useLocalUser } from '@/lib/useLocalUser';
 import {
   Loader2, Star, Trophy, ArrowUp, ArrowDown, Swords, Radio,
 } from 'lucide-react';
-import { InlinePlayer, type ResolvedLinks } from '@/components/InlinePlayer';
+import { TrackPreviewPill } from '@/components/TrackPreviewPill';
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
 
@@ -65,17 +65,6 @@ async function rateByFocus(
   if (!r.ok) throw new Error('Failed to save rating');
 }
 
-function linksToResolved(linksJson: Record<string, unknown> | null): ResolvedLinks | null {
-  if (!linksJson) return null;
-  return {
-    spotify:        (linksJson.spotify        as string | null) ?? null,
-    youtube:        (linksJson.youtube        as string | null) ?? null,
-    spotifyTrackId: (linksJson.spotifyTrackId as string | null) ?? null,
-    youtubeVideoId: (linksJson.youtubeVideoId as string | null) ?? null,
-    deezerId:       (linksJson.deezerId       as string | null) ?? null,
-  };
-}
-
 // ---- Editable stars ----
 
 function StarPicker({
@@ -134,35 +123,15 @@ function EloBadge({ elo }: { elo: Elo }) {
 // ---- Row ----
 
 function RankRow({
-  track, rank, userId, activeIdx, index, onActivate, onRated,
+  track, rank, userId, onRated,
 }: {
   track: RankTrack;
   rank: number;
   userId: number;
-  activeIdx: number | null;
-  index: number;
-  onActivate: (idx: number | null) => void;
   onRated: (mbid: string, score: number) => void;
 }) {
-  const [links, setLinks] = useState<ResolvedLinks | null>(() => linksToResolved(track.linksJson));
-  const [loadingLinks, setLoadingLinks] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(false);
-
-  const handleNeedLinks = useCallback(async () => {
-    if (loadingLinks) return;
-    if (links?.spotifyTrackId || links?.youtubeVideoId || links?.deezerId) return;
-    setLoadingLinks(true);
-    try {
-      const params = new URLSearchParams({
-        mbid: track.mbid, type: track.type, title: track.title, artist: track.artist,
-      });
-      const r = await fetch(`${basePath}/api/links?${params}`);
-      if (r.ok) setLinks(await r.json());
-    } finally {
-      setLoadingLinks(false);
-    }
-  }, [track.mbid, track.type, track.title, track.artist, links, loadingLinks]);
 
   const handlePick = async (s: number) => {
     setSaving(true);
@@ -182,7 +151,7 @@ function RankRow({
     }
   };
 
-  const artwork = (links as (ResolvedLinks & { artworkUrl?: string | null }) | null)?.artworkUrl ?? track.artworkUrl;
+  const artwork = track.artworkUrl;
 
   return (
     <div className="border-b border-border/20">
@@ -212,14 +181,7 @@ function RankRow({
           <p className="text-sm font-medium text-foreground truncate leading-snug">{track.title}</p>
           <p className="text-xs text-muted-foreground truncate">{track.artist}</p>
           <div className="mt-1">
-            <InlinePlayer
-              recId={index}
-              links={links}
-              isLoadingLinks={loadingLinks}
-              onNeedLinks={handleNeedLinks}
-              activeRecId={activeIdx}
-              onActivate={onActivate}
-            />
+            <TrackPreviewPill title={track.title} artist={track.artist} />
           </div>
         </div>
 
@@ -274,7 +236,6 @@ export default function RankingsPage() {
 function RankingsContent({ userId }: { userId: number }) {
   const [sortKey, setSortKey] = useState<SortKey>('stars');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
-  const [activeIdx, setActiveIdx] = useState<number | null>(null);
   // Local overrides for stars the user adjusts, so the table updates without a refetch.
   const [starOverrides, setStarOverrides] = useState<Record<string, number>>({});
 
@@ -388,10 +349,7 @@ function RankingsContent({ userId }: { userId: number }) {
             key={t.mbid}
             track={t}
             rank={i + 1}
-            index={i}
             userId={userId}
-            activeIdx={activeIdx}
-            onActivate={setActiveIdx}
             onRated={handleRated}
           />
         ))}

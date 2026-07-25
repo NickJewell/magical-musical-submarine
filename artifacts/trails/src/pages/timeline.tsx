@@ -8,7 +8,7 @@ import {
 } from '@/components/ui/dialog';
 import {
   Loader2, ChevronDown, ChevronUp, Star, ExternalLink,
-  Music, Radio, Check,
+  Music, Radio, Check, Trash2, Sparkles, RefreshCw,
 } from 'lucide-react';
 import { InlinePlayer, type ResolvedLinks } from '@/components/InlinePlayer';
 
@@ -47,11 +47,14 @@ interface PathSummary { count: number; avgScore: number | null; newCount: number
 
 interface DivePath {
   diveStepId: number;
+  diveId: number;
   diveName: string;
   title: string;
   summary: PathSummary;
   songs: Song[];
   wellTrodden: Song | null;
+  tastingNote: string | null;
+  tastingNoteAt: string | null;
 }
 
 interface DayData { date: string; label: string; paths: DivePath[] }
@@ -74,6 +77,40 @@ async function fetchSpotifyStatus(userId: number): Promise<SpotifyStatus> {
   const r = await fetch(`${basePath}/api/spotify/status?userId=${userId}`);
   if (!r.ok) return { enabled: false, connected: false, spotifyUserId: null };
   return r.json();
+}
+
+async function generateTastingNote(userId: number, diveStepId: number): Promise<{ tastingNote: string; tastingNoteAt: string }> {
+  const r = await fetch(`${basePath}/api/timeline/tasting-note`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId, diveStepId }),
+  });
+  const d = await r.json();
+  if (!r.ok) throw new Error(d.error ?? 'Failed to generate note');
+  return d;
+}
+
+async function deleteDiveStep(userId: number, diveStepId: number): Promise<{ diveDeleted: boolean; diveId: number }> {
+  const r = await fetch(`${basePath}/api/step/${diveStepId}`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId }),
+  });
+  const d = await r.json();
+  if (!r.ok) throw new Error(d.error ?? 'Failed to delete');
+  return d;
+}
+
+async function deleteDive(userId: number, diveId: number): Promise<void> {
+  const r = await fetch(`${basePath}/api/dive/${diveId}`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId }),
+  });
+  if (!r.ok) {
+    const d = await r.json().catch(() => ({}));
+    throw new Error(d.error ?? 'Failed to delete dive');
+  }
 }
 
 // ---- Star display (1–3 scale) ----
@@ -208,16 +245,85 @@ function SpotifyExportButton({
   );
 }
 
+// ---- Tasting note (per dive leg) ----
+
+function TastingNote({
+  path, userId, onGenerated,
+}: {
+  path: DivePath;
+  userId: number;
+  onGenerated: (diveStepId: number, note: string, at: string) => void;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Any track heard/rated on this leg → generation is possible.
+  const hasRatings = path.songs.some((s) => s.listenState || s.score !== null);
+
+  const handleGenerate = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const d = await generateTastingNote(userId, path.diveStepId);
+      onGenerated(path.diveStepId, d.tastingNote, d.tastingNoteAt);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to generate');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (path.tastingNote) {
+    return (
+      <div className="mx-3 mb-1 mt-2 rounded-xl border border-primary/15 bg-primary/[0.04] px-3 py-2.5">
+        <div className="flex items-center justify-between mb-1">
+          <span className="flex items-center gap-1.5 text-[10px] font-mono text-primary/70 uppercase tracking-widest">
+            <Sparkles className="w-3 h-3" /> Tasting note
+          </span>
+          <button
+            onClick={handleGenerate}
+            disabled={loading}
+            title="Regenerate"
+            className="text-muted-foreground/40 hover:text-primary transition-colors disabled:opacity-40"
+          >
+            {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+          </button>
+        </div>
+        <p className="text-xs font-serif leading-relaxed text-foreground/80">{path.tastingNote}</p>
+        {error && <p className="text-[10px] text-destructive mt-1">{error}</p>}
+      </div>
+    );
+  }
+
+  if (!hasRatings) return null;
+
+  return (
+    <div className="px-3 pt-2">
+      <button
+        onClick={handleGenerate}
+        disabled={loading}
+        className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground/60 hover:text-primary transition-colors uppercase tracking-wide disabled:opacity-40"
+      >
+        {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+        {loading ? 'Tasting…' : 'What did we taste here?'}
+      </button>
+      {error && <p className="text-[10px] text-destructive mt-1">{error}</p>}
+    </div>
+  );
+}
+
 // ---- Dive-path card ----
 
 function PathCard({
-  path, userId, defaultExpanded, spotify, onOpenSong,
+  path, userId, defaultExpanded, spotify, onOpenSong, onRequestDelete, onTastingNote,
 }: {
   path: DivePath;
   userId: number;
   defaultExpanded: boolean;
   spotify: SpotifyStatus | null;
   onOpenSong: (s: Song) => void;
+  onRequestDelete: (path: DivePath) => void;
+  onTastingNote: (diveStepId: number, note: string, at: string) => void;
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const { count, avgScore, newCount } = path.summary;
@@ -229,13 +335,13 @@ function PathCard({
   ].filter(Boolean).join(' · ');
 
   return (
-    <div className="rounded-2xl border border-border/40 bg-secondary/10 overflow-hidden">
+    <div className="rounded-2xl border border-border/40 bg-secondary/10 overflow-hidden group/card">
       {/* Path header */}
-      <button
-        onClick={() => setExpanded((e) => !e)}
-        className="w-full flex items-start gap-2 px-4 py-3 text-left hover:bg-secondary/20 transition-colors"
-      >
-        <div className="flex-1 min-w-0">
+      <div className="w-full flex items-start gap-2 px-4 py-3 hover:bg-secondary/20 transition-colors">
+        <button
+          onClick={() => setExpanded((e) => !e)}
+          className="flex-1 min-w-0 text-left"
+        >
           {path.diveName && (
             <p className="text-[10px] font-mono text-muted-foreground/50 uppercase tracking-widest truncate mb-0.5">
               {path.diveName}
@@ -247,11 +353,18 @@ function PathCard({
           {!expanded && (
             <p className="text-[10px] font-mono text-muted-foreground/50 mt-1">{collapsedLabel}</p>
           )}
-        </div>
-        {expanded
-          ? <ChevronUp className="w-4 h-4 text-muted-foreground/40 shrink-0 mt-0.5" />
-          : <ChevronDown className="w-4 h-4 text-muted-foreground/40 shrink-0 mt-0.5" />}
-      </button>
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); onRequestDelete(path); }}
+          title="Delete this path"
+          className="shrink-0 mt-0.5 text-muted-foreground/25 hover:text-destructive transition-colors opacity-0 group-hover/card:opacity-100 focus:opacity-100"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+        <button onClick={() => setExpanded((e) => !e)} className="shrink-0 mt-0.5 text-muted-foreground/40">
+          {expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+        </button>
+      </div>
 
       {/* Song list */}
       {expanded && (
@@ -262,6 +375,9 @@ function PathCard({
           {path.songs.map((s) => (
             <SongRow key={s.recId} song={s} onOpen={onOpenSong} />
           ))}
+
+          {/* Tasting note */}
+          <TastingNote path={path} userId={userId} onGenerated={onTastingNote} />
 
           {/* Footer actions */}
           <div className="flex items-center justify-between px-3 pt-2 pb-1">
@@ -276,13 +392,15 @@ function PathCard({
 // ---- Day column ----
 
 function DayColumn({
-  day, userId, isToday, spotify, onOpenSong,
+  day, userId, isToday, spotify, onOpenSong, onRequestDelete, onTastingNote,
 }: {
   day: DayData;
   userId: number;
   isToday: boolean;
   spotify: SpotifyStatus | null;
   onOpenSong: (s: Song) => void;
+  onRequestDelete: (path: DivePath) => void;
+  onTastingNote: (diveStepId: number, note: string, at: string) => void;
 }) {
   const totalSongs = day.paths.reduce((n, p) => n + p.summary.count, 0);
   const autoExpand  = isToday || (day.paths.length <= 2 && totalSongs <= 8);
@@ -313,6 +431,8 @@ function DayColumn({
           defaultExpanded={autoExpand}
           spotify={spotify}
           onOpenSong={onOpenSong}
+          onRequestDelete={onRequestDelete}
+          onTastingNote={onTastingNote}
         />
       ))}
     </div>
@@ -529,6 +649,99 @@ function SongDetail({
   );
 }
 
+// ---- Delete confirmation dialog ----
+
+function DeleteDialog({
+  path, siblingCount, userId, onClose, onDeletedStep, onDeletedDive,
+}: {
+  path: DivePath;
+  siblingCount: number; // total paths belonging to the same dive
+  userId: number;
+  onClose: () => void;
+  onDeletedStep: (diveStepId: number, diveAlsoDeleted: boolean, diveId: number) => void;
+  onDeletedDive: (diveId: number) => void;
+}) {
+  const [busy, setBusy] = useState<null | 'step' | 'dive'>(null);
+  const [error, setError] = useState<string | null>(null);
+  const multiPath = siblingCount > 1;
+
+  const doDeleteStep = async () => {
+    setBusy('step');
+    setError(null);
+    try {
+      const d = await deleteDiveStep(userId, path.diveStepId);
+      onDeletedStep(path.diveStepId, d.diveDeleted, path.diveId);
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to delete');
+      setBusy(null);
+    }
+  };
+
+  const doDeleteDive = async () => {
+    setBusy('dive');
+    setError(null);
+    try {
+      await deleteDive(userId, path.diveId);
+      onDeletedDive(path.diveId);
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to delete dive');
+      setBusy(null);
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={(open) => { if (!open && !busy) onClose(); }}>
+      <DialogContent className="max-w-sm mx-auto rounded-2xl bg-background border-border/50 space-y-4">
+        <DialogHeader>
+          <DialogTitle className="font-serif text-lg text-foreground leading-snug">Delete this?</DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-1 text-sm text-muted-foreground">
+          <p>
+            Path <span className="italic text-foreground/90">"{path.title}"</span>
+            {path.diveName && <> in <span className="font-mono text-xs uppercase tracking-wide">{path.diveName}</span></>}.
+          </p>
+          <p className="text-xs text-muted-foreground/70">
+            This removes its tracks and your ratings on them. Can't be undone.
+          </p>
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <Button
+            variant="destructive"
+            onClick={doDeleteStep}
+            disabled={!!busy}
+            className="w-full justify-center"
+          >
+            {busy === 'step' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+            Delete this path
+          </Button>
+
+          {multiPath && (
+            <Button
+              variant="outline"
+              onClick={doDeleteDive}
+              disabled={!!busy}
+              className="w-full justify-center border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+            >
+              {busy === 'dive' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+              Delete entire dive ({siblingCount} paths)
+            </Button>
+          )}
+
+          <Button variant="ghost" onClick={onClose} disabled={!!busy} className="w-full justify-center">
+            Cancel
+          </Button>
+        </div>
+
+        {error && <p className="text-xs text-destructive text-center">{error}</p>}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ---- Main page ----
 
 export default function TimelinePage() {
@@ -552,8 +765,49 @@ function TimelineContent({ userId }: { userId: number }) {
   const [initialLoaded, setInitialLoaded] = useState(false);
   const [selectedSong, setSelectedSong] = useState<Song | null>(null);
   const [ratedCount, setRatedCount] = useState(0);
+  const [deleteTarget, setDeleteTarget] = useState<DivePath | null>(null);
 
   const today = new Date().toISOString().slice(0, 10);
+
+  // Store a generated tasting note in place
+  const handleTastingNote = useCallback((diveStepId: number, note: string, at: string) => {
+    setAllDays((prev) =>
+      prev.map((day) => ({
+        ...day,
+        paths: day.paths.map((p) =>
+          p.diveStepId === diveStepId ? { ...p, tastingNote: note, tastingNoteAt: at } : p,
+        ),
+      })),
+    );
+  }, []);
+
+  // Remove a single path after deletion (and its dive if the backend emptied it)
+  const handleDeletedStep = useCallback((diveStepId: number, diveAlsoDeleted: boolean, diveId: number) => {
+    setAllDays((prev) =>
+      prev
+        .map((day) => ({
+          ...day,
+          paths: day.paths.filter((p) =>
+            diveAlsoDeleted ? p.diveId !== diveId : p.diveStepId !== diveStepId,
+          ),
+        }))
+        .filter((day) => day.paths.length > 0),
+    );
+  }, []);
+
+  // Remove every path belonging to a deleted dive
+  const handleDeletedDive = useCallback((diveId: number) => {
+    setAllDays((prev) =>
+      prev
+        .map((day) => ({ ...day, paths: day.paths.filter((p) => p.diveId !== diveId) }))
+        .filter((day) => day.paths.length > 0),
+    );
+  }, []);
+
+  // How many paths share the delete target's dive (across all loaded days)
+  const targetSiblingCount = deleteTarget
+    ? allDays.reduce((n, day) => n + day.paths.filter((p) => p.diveId === deleteTarget.diveId).length, 0)
+    : 0;
 
   // Update a song's score + listenState in-place after a rating is saved
   const handleRated = useCallback((recId: number, score: number | null, listenState: string) => {
@@ -704,6 +958,8 @@ function TimelineContent({ userId }: { userId: number }) {
             isToday={day.date === today}
             spotify={spotify ?? null}
             onOpenSong={setSelectedSong}
+            onRequestDelete={setDeleteTarget}
+            onTastingNote={handleTastingNote}
           />
         ))}
       </div>
@@ -715,6 +971,18 @@ function TimelineContent({ userId }: { userId: number }) {
           userId={userId}
           onClose={() => setSelectedSong(null)}
           onRated={handleRated}
+        />
+      )}
+
+      {/* Delete confirmation */}
+      {deleteTarget && (
+        <DeleteDialog
+          path={deleteTarget}
+          siblingCount={targetSiblingCount}
+          userId={userId}
+          onClose={() => setDeleteTarget(null)}
+          onDeletedStep={handleDeletedStep}
+          onDeletedDive={handleDeletedDive}
         />
       )}
     </div>

@@ -381,6 +381,60 @@ Banned on sight: "sonic," "soundscape," "sonic tapestry," "eclectic," "genre-def
   return portrait.trim();
 }
 
+// ---- Tasting note (per dive leg) ----
+
+/**
+ * A critic's paragraph on one leg of a dive — "what we tasted here." Given the
+ * direction explored and the tracks the listener heard + rated on this leg,
+ * write a compact reflection on what it revealed about their taste. Uses the
+ * music-appreciation house style (see .claude/skills/music-appreciation).
+ */
+export async function generateTastingNote(opts: {
+  diveName: string;
+  directionLabel: string;
+  hypothesis?: string | null;
+  tracks: Array<{ title: string; artist: string; listenState: string | null; score: number | null; reviewText?: string | null }>;
+}): Promise<string> {
+  const { diveName, directionLabel, hypothesis, tracks } = opts;
+
+  const trackList = tracks.map((t) => {
+    const scoreLabel = t.score === 1 ? " — 1/3, wanted less of this"
+      : t.score === 2 ? " — 2/3, middle ground"
+      : t.score === 3 ? " — 3/3, wanted more of this"
+      : "";
+    const state = t.listenState ? ` (${t.listenState})` : "";
+    const note = t.reviewText ? ` — their note: "${t.reviewText}"` : "";
+    return `- "${t.title}" by ${t.artist}${state}${scoreLabel}${note}`;
+  }).join("\n");
+
+  const systemPrompt = `You are a music critic writing the tasting note for one leg of a listening journey — a wine-note for a stretch of songs. The reader followed a thread ("${directionLabel}") and rated what they heard. Say what this leg *revealed* about their taste, in the voice of someone with an ear and a point of view.
+
+Write ONE tight paragraph, 55–100 words, second person, present tense. Not a recap, not a track-by-track — a read on what this leg taught you about them.
+
+Craft:
+- OPEN ON SOMETHING CONCRETE. The first sentence lands on the real result of this leg — what landed, what got rejected, the specific shape of the reaction. No warm-up, no "On this leg you explored…," no throat-clear.
+- EARN IT FROM THE EVIDENCE. The ratings and their own notes are the signal — what they scored 3/3 versus what they skipped tells you where the thread hit and where it missed. Prefer the sharp, falsifiable read over the safe one. Weight their written notes hardest.
+- NAME THE GENRE MOVE WITH AN INSIGHT, never as a list — what specific thing inside "${directionLabel}" did they reach for or push away? If the leg is unrated or thin, be evocative about the thread itself, not factual; never invent a reaction they didn't give.
+- LAND IT. Close on a line worth quoting — what this leg sets up, the question it leaves, or the direction it points next.
+
+Banned on sight: "sonic," "soundscape," "sonic tapestry," "eclectic," "genre-defying," "musical journey," "auditory," "at its core," "a masterclass in," "whether it's X or Y," "you're in for a treat," "on this leg," "this section" — and any sentence generic enough to describe a different stretch of songs. Output the paragraph only: no heading, no title, no quotes around it.`;
+
+  const userPrompt = `Dive: "${diveName}"
+Thread explored: "${directionLabel}"${hypothesis ? `\nThe hunch behind it: ${hypothesis}` : ""}
+
+What they heard and how they rated it:
+${trackList}
+
+Write the tasting note for this leg — what it revealed about their taste.`;
+
+  const note = await chat(PORTRAIT_MODEL, [
+    { role: "system", content: systemPrompt },
+    { role: "user", content: userPrompt },
+  ]);
+
+  return note.trim();
+}
+
 // ---- Narrate ----
 
 export async function narrate(opts: {

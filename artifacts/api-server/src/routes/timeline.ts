@@ -3,8 +3,40 @@ import {
   db, divesTable, diveStepsTable, recommendationsTable, ratingsTable,
 } from "@workspace/db";
 import { eq, and, lt, gte, desc, inArray } from "drizzle-orm";
+import { generateTastingNote } from "../lib/llm";
+import { logger } from "../lib/logger";
 
 const router = Router();
+
+/**
+ * Load cached tasting notes for a set of dive steps. Guarded: the tasting_note
+ * columns require a `drizzle-kit push`, so if they don't exist yet we degrade to
+ * "no notes" rather than 500-ing the whole timeline.
+ */
+async function loadTastingNotes(
+  stepIds: number[],
+): Promise<Map<number, { note: string; at: string | null }>> {
+  const out = new Map<number, { note: string; at: string | null }>();
+  if (stepIds.length === 0) return out;
+  try {
+    const rows = await db
+      .select({
+        id: diveStepsTable.id,
+        tastingNote: diveStepsTable.tastingNote,
+        tastingNoteAt: diveStepsTable.tastingNoteAt,
+      })
+      .from(diveStepsTable)
+      .where(inArray(diveStepsTable.id, stepIds));
+    for (const r of rows) {
+      if (r.tastingNote) {
+        out.set(r.id, { note: r.tastingNote, at: r.tastingNoteAt?.toISOString() ?? null });
+      }
+    }
+  } catch (err) {
+    logger.warn({ err }, "tasting_note columns unavailable — run drizzle-kit push");
+  }
+  return out;
+}
 
 router.get("/timeline", async (req, res) => {
   const userId = Number(req.query.userId);
@@ -86,6 +118,9 @@ router.get("/timeline", async (req, res) => {
     recsByStep.set(rec.diveStepId, list);
   }
 
+  // ---- Cached tasting notes per step (guarded) ----
+  const tastingNotes = await loadTastingNotes(stepIds);
+
   // ---- Group steps by date (UTC date key YYYY-MM-DD) ----
   const dayMap = new Map<string, typeof steps>();
   for (const step of steps) {
@@ -154,13 +189,18 @@ router.get("/timeline", async (req, res) => {
         (s) => s.listenState == null || s.listenState === "new"
       ).length;
 
+      const tasting = tastingNotes.get(step.diveStepId) ?? null;
+
       return {
         diveStepId: step.diveStepId,
+        diveId:     step.diveId,
         diveName:   step.diveName,
         title,
         summary: { count: songs.length, avgScore, newCount },
         songs,
         wellTrodden,
+        tastingNote:   tasting?.note ?? null,
+        tastingNoteAt: tasting?.at ?? null,
       };
     });
 
@@ -172,6 +212,107 @@ router.get("/timeline", async (req, res) => {
   const nextCursor = oldestDate ?? null;
 
   return res.json({ days: result, nextCursor });
+});
+
+// POST /timeline/tasting-note — generate + cache a critic's note for one dive leg
+router.post("/timeline/tasting-note", async (req, res) => {
+  const userId = Number((req.body as { userId?: unknown })?.userId);
+  const diveStepId = Number((req.body as { diveStepId?: unknown })?.diveStepId);
+  if (!userId || !diveStepId) {
+    return res.status(400).json({ error: "userId and diveStepId required" });
+  }
+
+  // Ownership: step → dive → user
+  const [step] = await db
+    .select({
+      id: diveStepsTable.id,
+      chosenDirection: diveStepsTable.chosenDirection,
+      hypothesisText: diveStepsTable.hypothesisText,
+      diveName: divesTable.name,
+      userId: divesTable.userId,
+    })
+    .from(diveStepsTable)
+    .innerJoin(divesTable, eq(diveStepsTable.diveId, divesTable.id))
+    .where(eq(diveStepsTable.id, diveStepId))
+    .limit(1);
+
+  if (!step) return res.status(404).json({ error: "Dive step not found" });
+  if (step.userId !== userId) return res.status(403).json({ error: "Access denied" });
+
+  // Gather the leg's LLM tracks + latest ratings
+  const recs = await db
+    .select()
+    .from(recommendationsTable)
+    .where(and(eq(recommendationsTable.diveStepId, diveStepId), eq(recommendationsTable.arm, "llm")));
+
+  if (recs.length === 0) {
+    return res.status(422).json({ error: "No tracks on this leg yet" });
+  }
+
+  const recIds = recs.map((r) => r.id);
+  const allRatings = await db
+    .select({
+      recId: ratingsTable.recId,
+      score: ratingsTable.score,
+      listenState: ratingsTable.listenState,
+      reviewText: ratingsTable.reviewText,
+    })
+    .from(ratingsTable)
+    .where(inArray(ratingsTable.recId, recIds))
+    .orderBy(desc(ratingsTable.ratedAt));
+
+  const latest = new Map<number, { score: number | null; listenState: string; reviewText: string | null }>();
+  for (const r of allRatings) {
+    if (!latest.has(r.recId)) {
+      latest.set(r.recId, {
+        score: r.score != null ? parseFloat(String(r.score)) : null,
+        listenState: r.listenState,
+        reviewText: r.reviewText ?? null,
+      });
+    }
+  }
+
+  const tracks = recs.map((rec) => {
+    const rating = latest.get(rec.id);
+    return {
+      title: rec.title,
+      artist: rec.artist,
+      listenState: rating?.listenState ?? null,
+      score: rating?.score ?? null,
+      reviewText: rating?.reviewText ?? null,
+    };
+  });
+
+  const ratedCount = tracks.filter((t) => t.listenState || t.score !== null).length;
+  if (ratedCount === 0) {
+    return res.status(422).json({ error: "Rate a few tracks on this leg first" });
+  }
+
+  let note: string;
+  try {
+    note = await generateTastingNote({
+      diveName: step.diveName,
+      directionLabel: step.chosenDirection || step.hypothesisText || "this thread",
+      hypothesis: step.hypothesisText,
+      tracks,
+    });
+  } catch (err) {
+    logger.error({ err, diveStepId }, "tasting-note generation failed");
+    return res.status(502).json({ error: "Could not generate a note — try again" });
+  }
+
+  const now = new Date();
+  try {
+    await db
+      .update(diveStepsTable)
+      .set({ tastingNote: note, tastingNoteAt: now })
+      .where(eq(diveStepsTable.id, diveStepId));
+  } catch (err) {
+    // Column may not exist pre-push — still return the note so the UI can show it.
+    logger.warn({ err }, "could not persist tasting note — run drizzle-kit push");
+  }
+
+  return res.json({ tastingNote: note, tastingNoteAt: now.toISOString() });
 });
 
 // ---- helpers ----

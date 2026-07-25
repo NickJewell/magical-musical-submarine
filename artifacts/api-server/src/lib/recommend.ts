@@ -6,7 +6,7 @@
 
 import { db, seedsTable, portraitsTable, diveStepsTable, recommendationsTable, ratingsTable, tasteEventsTable, divesTable } from "@workspace/db";
 import { eq, desc, and } from "drizzle-orm";
-import { enrichFromSeeds, lastfmTopTrack, type EnrichResult } from "./enrich";
+import { enrichFromSeeds, enrichFromFocus, lastfmTopTrack, type EnrichResult, type Focus } from "./enrich";
 import { resolve, MB_REQUEST_TIMEOUT_MS } from "./musicbrainz";
 import { resolveLinks } from "./links";
 import { propose, narrate } from "./llm";
@@ -75,18 +75,23 @@ export async function recommend(opts: { stepId: number; userId: number }) {
     reviewText: r.reviewText ?? null,
   }));
 
-  // Enrich with Last.fm
-  const enrichData = await enrichFromSeeds(
-    seeds.map((s) => ({ artist: s.artist, title: s.title }))
-  );
-  const similarArtistNames = enrichData.similarArtists.slice(0, 15).map((a) => a.name);
-
   const directionLabel = step.chosenDirection ?? "explore";
   const directionsJson = step.directionsJson as {
     directions?: Array<{ label: string; rationale: string }>;
     hypothesis?: string;
     wellTroddenDirection?: { label: string; rationale: string };
+    focus?: Focus;
   } | null;
+
+  // Enrich from the dive's focus when it started from a specific selection,
+  // otherwise from the user's seeds. This anchors BOTH the propose-steering and
+  // the well-trodden control arm on the chosen starting point, so the 4th
+  // (well-trodden) recommendation is the obvious CF neighbour of the focus.
+  const focus = directionsJson?.focus ?? null;
+  const enrichData = focus
+    ? await enrichFromFocus(focus)
+    : await enrichFromSeeds(seeds.map((s) => ({ artist: s.artist, title: s.title })));
+  const similarArtistNames = enrichData.similarArtists.slice(0, 15).map((a) => a.name);
 
   const chosenDir = directionsJson?.directions?.find((d) => d.label === directionLabel);
   const directionRationale = chosenDir?.rationale ?? "Explore new territory.";

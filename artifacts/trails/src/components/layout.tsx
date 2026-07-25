@@ -1,14 +1,12 @@
 import { Link, useLocation } from 'wouter';
 import { useUser } from '@clerk/react';
-import { Home, BookOpen, Activity, ScrollText, Rss, Trophy } from 'lucide-react';
+import { Home, ScrollText, Trophy, ListPlus } from 'lucide-react';
 
 const NAV_ITEMS = [
-  { href: '/',          icon: Home,       label: 'Home'     },
-  { href: '/feed',      icon: Rss,        label: 'Feed'     },
-  { href: '/timeline',  icon: ScrollText, label: 'Timeline' },
-  { href: '/rankings',  icon: Trophy,     label: 'Rankings' },
-  { href: '/portrait',  icon: BookOpen,   label: 'Portrait' },
-  { href: '/metrics',   icon: Activity,   label: 'Metrics'  },
+  { href: '/',          icon: Home,       label: 'Home'        },
+  { href: '/feed',      icon: ListPlus,   label: 'Rank Tracks' },
+  { href: '/timeline',  icon: ScrollText, label: 'Timeline'    },
+  { href: '/rankings',  icon: Trophy,     label: 'Rankings'    },
 ];
 
 // Pages that should show with no chrome at all

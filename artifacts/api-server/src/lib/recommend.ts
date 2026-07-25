@@ -15,8 +15,14 @@ import { logger } from "./logger";
 const MAX_CANDIDATES = 7;
 const TARGET_RECS = 3;
 
-/** Total time budget for the full Propose→Resolve pipeline (ms). */
-const PIPELINE_BUDGET_MS = 30_000;
+/** Max time to wait for the LLM propose step (ms). */
+const PROPOSE_BUDGET_MS = 25_000;
+/**
+ * Guaranteed time budget for the MusicBrainz resolve loop (ms), measured from
+ * when propose() returns — not from the start of the whole pipeline. This means
+ * a slow LLM response can't silently starve the resolver of its entire budget.
+ */
+const RESOLVE_BUDGET_MS = 20_000;
 
 export async function recommend(opts: { stepId: number; userId: number }) {
   const { stepId, userId } = opts;
@@ -125,35 +131,50 @@ export async function recommend(opts: { stepId: number; userId: number }) {
     likelyKnown: string;
   };
 
-  const pipelineStart = Date.now();
-
-  function remainingBudgetMs(): number {
-    return PIPELINE_BUDGET_MS - (Date.now() - pipelineStart);
-  }
-
+  /**
+   * Run one propose→resolve round. `resolveDeadline` is an absolute timestamp
+   * (Date.now()-based) set AFTER propose() returns, so the resolve loop always
+   * gets RESOLVE_BUDGET_MS regardless of how long the LLM took.
+   */
   async function runProposalRound(broader: boolean): Promise<VerifiedRec[]> {
-    const candidates = await propose({
-      portraitText,
-      recap,
-      directionLabel,
-      directionRationale,
-      similarArtists: similarArtistNames,
-      count: MAX_CANDIDATES,
-      broader,
-    });
+    const proposeTimeout = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("propose timeout")), PROPOSE_BUDGET_MS)
+    );
+
+    let candidates: Awaited<ReturnType<typeof propose>>;
+    try {
+      candidates = await Promise.race([
+        propose({
+          portraitText,
+          recap,
+          directionLabel,
+          directionRationale,
+          similarArtists: similarArtistNames,
+          count: MAX_CANDIDATES,
+          broader,
+        }),
+        proposeTimeout,
+      ]);
+    } catch (err) {
+      logger.warn({ stepId, broader, err: String(err) }, "propose() timed out or failed — skipping round");
+      return [];
+    }
+
+    // Resolve budget starts NOW (after propose returned), not at pipeline start.
+    const resolveDeadline = Date.now() + RESOLVE_BUDGET_MS;
 
     const roundVerified: VerifiedRec[] = [];
     for (const c of candidates) {
       if (roundVerified.length >= TARGET_RECS) break;
 
-      const budget = remainingBudgetMs();
-      if (budget <= 0) {
-        logger.warn({ stepId, verified: roundVerified.length }, "Pipeline budget exhausted — stopping resolve loop early");
+      const remainingMs = resolveDeadline - Date.now();
+      if (remainingMs <= 0) {
+        logger.warn({ stepId, verified: roundVerified.length }, "Resolve budget exhausted — stopping resolve loop early");
         break;
       }
 
       // Use whichever is smaller: the per-request default or whatever budget remains
-      const effectiveTimeout = Math.min(MB_REQUEST_TIMEOUT_MS, budget);
+      const effectiveTimeout = Math.min(MB_REQUEST_TIMEOUT_MS, remainingMs);
       const resolved = await resolve(c, effectiveTimeout);
       if (!resolved) {
         // Similarity-gate rejections and timeout errors are both logged inside musicbrainz.ts
@@ -180,15 +201,11 @@ export async function recommend(opts: { stepId: number; userId: number }) {
 
   if (verified.length === 0) {
     logger.warn({ stepId }, "No LLM candidates passed MusicBrainz gate on first round — retrying with broader prompt");
-    if (remainingBudgetMs() > 0) {
-      verified = await runProposalRound(true);
-      if (verified.length === 0) {
-        logger.warn({ stepId }, "No LLM candidates passed MusicBrainz gate after broader retry — step will have only control-arm rec");
-      } else {
-        logger.info({ stepId, count: verified.length }, "Broader retry succeeded");
-      }
+    verified = await runProposalRound(true);
+    if (verified.length === 0) {
+      logger.warn({ stepId }, "No LLM candidates passed MusicBrainz gate after broader retry — step will have only control-arm rec");
     } else {
-      logger.warn({ stepId }, "Pipeline budget exhausted before broader retry — step will have only control-arm rec");
+      logger.info({ stepId, count: verified.length }, "Broader retry succeeded");
     }
   }
 

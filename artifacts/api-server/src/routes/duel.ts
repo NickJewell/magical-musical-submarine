@@ -10,8 +10,18 @@ import { eq } from "drizzle-orm";
 import { getNextDuelPair, type Strategy } from "../lib/canonPool";
 import { applyComparison } from "../lib/elo";
 import { logger } from "../lib/logger";
+import { fetchDeezerData } from "../lib/links";
 
 const router: IRouter = Router();
+
+// GET /api/deezer-preview?title=&artist=
+router.get("/deezer-preview", async (req, res): Promise<void> => {
+  const title  = String(req.query.title  ?? "").trim();
+  const artist = String(req.query.artist ?? "").trim();
+  if (!title || !artist) { res.status(400).json({ error: "title and artist required" }); return; }
+  const result = await fetchDeezerData(artist, title);
+  res.json(result); // { deezerId, previewUrl }
+});
 
 // GET /api/duel/next?userId=&strategy=
 router.get("/duel/next", async (req, res): Promise<void> => {

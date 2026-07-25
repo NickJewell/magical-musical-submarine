@@ -31,6 +31,9 @@ vi.mock("@workspace/db", () => {
     ratingsTable: table,
     tasteEventsTable: table,
     divesTable: table,
+    trackEloTable: table,
+    focusRatingsTable: table,
+    resolvedEntitiesTable: table,
   };
 });
 
@@ -218,7 +221,8 @@ function buildInsertChain(returnedRows: unknown[]) {
  *  3. load seeds           → mockSeeds   awaited directly
  *  4. load portraits       → [portrait]  ends with .orderBy().limit(1)
  *  5. load prior ratings   → []          ends with .limit(20).catch()
- *  6. well-trodden dedup   → []          buildWellTroddenRec's priorWt query,
+ *  6. ELO signal           → []          getEloSignal() trackElo query
+ *  7. well-trodden dedup   → []          buildWellTroddenRec's priorWt query,
  *                                         ends with .innerJoin().where().catch()
  */
 function setupDbSelectSequence(overrides?: { existingRecs?: unknown[] }) {
@@ -229,6 +233,7 @@ function setupDbSelectSequence(overrides?: { existingRecs?: unknown[] }) {
     .mockReturnValueOnce(buildSelectChain([mockStep]))
     .mockReturnValueOnce(buildSelectChain(mockSeeds))
     .mockReturnValueOnce(buildSelectChain(mockPortraits))
+    .mockReturnValueOnce(buildSelectChain([]))
     .mockReturnValueOnce(buildSelectChain([]))
     .mockReturnValueOnce(buildSelectChain([]));
 }

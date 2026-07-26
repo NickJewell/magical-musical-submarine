@@ -91,19 +91,38 @@ router.get("/discover/track", async (req, res): Promise<void> => {
   let mbid = `lastfm:${pick.artist.toLowerCase().replace(/[^\w]/g, "-")}:${pick.title.toLowerCase().replace(/[^\w]/g, "-")}`;
   let year: number | null = null;
 
-  const [resolved, itunes] = await Promise.allSettled([
-    resolve({ artist: pick.artist, title: pick.title, type: "track", likely_known: "medium" }, 3500),
-    fetchItunesData(pick.artist, pick.title),
-  ]);
+  // Cap the entire secondary-metadata block so a slow MB or iTunes response
+  // never stalls the feed.  4 s ceiling: tracks are served quickly with a
+  // synthetic key + null artwork rather than making the user wait 10+ s.
+  const METADATA_DEADLINE_MS = 4_000;
+  type Meta = { mbid: string; year: number | null; artworkUrl: string | null };
 
-  if (resolved.status === "fulfilled" && resolved.value) {
-    mbid = resolved.value.mbid;
-    year = resolved.value.year;
-  } else if (resolved.status === "rejected") {
-    logger.debug({ err: resolved.reason, pick }, "discover: MB resolve failed — using synthetic key");
-  }
+  const metaPromise: Promise<Meta> = Promise.allSettled([
+    resolve({ artist: pick.artist, title: pick.title, type: "track", likely_known: "medium" }, 2_500),
+    fetchItunesData(pick.artist, pick.title, { timeoutMs: 3_000, retries: 0 }),
+  ]).then(([resolved, itunes]) => {
+    const resolvedMbid =
+      resolved.status === "fulfilled" && resolved.value ? resolved.value.mbid : null;
+    const resolvedYear =
+      resolved.status === "fulfilled" && resolved.value ? resolved.value.year : null;
+    if (resolved.status === "rejected") {
+      logger.debug({ err: resolved.reason, pick }, "discover: MB resolve failed — using synthetic key");
+    }
+    return {
+      mbid: resolvedMbid ?? mbid,
+      year: resolvedYear,
+      artworkUrl: itunes.status === "fulfilled" ? itunes.value.artworkUrl : null,
+    };
+  });
 
-  const artworkUrl = itunes.status === "fulfilled" ? itunes.value.artworkUrl : null;
+  const deadlinePromise: Promise<Meta> = new Promise((res) =>
+    setTimeout(() => res({ mbid, year: null, artworkUrl: null }), METADATA_DEADLINE_MS),
+  );
+
+  const meta = await Promise.race([metaPromise, deadlinePromise]);
+  mbid      = meta.mbid;
+  year      = meta.year;
+  const artworkUrl = meta.artworkUrl;
 
   res.json({
     track: { mbid, type: "track", title: pick.title, artist: pick.artist, year },

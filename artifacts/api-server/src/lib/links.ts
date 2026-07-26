@@ -160,7 +160,11 @@ async function fetchDeezerData(artist: string, title: string): Promise<{ deezerI
 export { fetchDeezerData, fetchItunesData };
 
 /** iTunes Search API — returns artwork (upscaled) and Apple Music track URL. Non-throwing. */
-async function fetchItunesData(artist: string, title: string): Promise<ItunesData> {
+async function fetchItunesData(
+  artist: string,
+  title: string,
+  opts: { timeoutMs?: number; retries?: number } = {},
+): Promise<ItunesData> {
   try {
     const term = encodeURIComponent(`${artist} ${title}`);
     interface ItunesResp { results?: Array<{ artworkUrl100?: string; trackViewUrl?: string }> }
@@ -169,6 +173,9 @@ async function fetchItunesData(artist: string, title: string): Promise<ItunesDat
       {
         cacheKey: `itunes:${artist.toLowerCase()}:${title.toLowerCase()}`,
         cacheTtlMs: 30 * 24 * 60 * 60 * 1000,
+        // Default to a 5 s timeout with 1 retry so slow responses don't stall callers.
+        timeoutMs: opts.timeoutMs ?? 5_000,
+        retries:   opts.retries   ?? 1,
       },
     );
     const result = data.results?.[0];

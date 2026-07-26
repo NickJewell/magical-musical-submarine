@@ -186,9 +186,9 @@ export async function aggregateSimilarArtists(artists: string[]): Promise<Simila
 // ---- Short editorial blurbs (artist bio + track wiki) ----
 
 /** Strip Last.fm HTML, drop the "Read more on Last.fm" footer, cap word count. */
-function cleanBlurb(raw: string | undefined | null, maxWords = 200): string | null {
+function cleanBlurb(raw: string | undefined | null): string | null {
   if (!raw) return null;
-  let text = raw
+  const text = raw
     .replace(/<a\b[^>]*>Read more on Last\.fm<\/a>/gi, "")
     .replace(/<[^>]+>/g, "")
     .replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;/g, "'")
@@ -196,10 +196,7 @@ function cleanBlurb(raw: string | undefined | null, maxWords = 200): string | nu
     .replace(/\s*Read more on Last\.fm.*$/is, "")
     .replace(/\s+/g, " ")
     .trim();
-  if (!text) return null;
-  const words = text.split(" ");
-  if (words.length > maxWords) text = words.slice(0, maxWords).join(" ") + "…";
-  return text;
+  return text || null;
 }
 
 /** A ~200-word artist bio from Last.fm's artist.getInfo. Null when unavailable. */
@@ -228,12 +225,13 @@ export async function lastfmTrackBlurb(artist: string, track: string): Promise<s
     `${LASTFM_BASE}/?method=track.getinfo&artist=${encodeURIComponent(artist)}` +
     `&track=${encodeURIComponent(track)}&api_key=${LASTFM_KEY}&format=json&autocorrect=1`;
   try {
-    interface Resp { track?: { wiki?: { summary?: string } } }
+    interface Resp { track?: { wiki?: { content?: string; summary?: string } } }
     const data = await httpGet<Resp>(url, {
-      cacheKey: `lfm:trackinfo:${artist.toLowerCase()}:${track.toLowerCase()}`,
+      cacheKey: `lfm:trackinfo2:${artist.toLowerCase()}:${track.toLowerCase()}`,
       cacheTtlMs: 30 * 24 * 60 * 60 * 1000,
     });
-    return cleanBlurb(data.track?.wiki?.summary);
+    // Prefer wiki.content (full article) over summary (intentionally truncated by Last.fm)
+    return cleanBlurb(data.track?.wiki?.content ?? data.track?.wiki?.summary);
   } catch (err) {
     logger.warn({ err, artist, track }, "Last.fm track.getInfo failed");
     return null;

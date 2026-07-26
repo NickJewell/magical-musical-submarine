@@ -2,6 +2,8 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocalUser } from '@/lib/useLocalUser';
 import { PairwiseSlider } from '@/components/PairwiseSlider';
 import { Loader2, Scale } from 'lucide-react';
+import { useUser } from '@clerk/react';
+import { useLocation } from 'wouter';
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
 
@@ -21,8 +23,19 @@ async function fetchPair(userId: number, last: { a: string; b: string } | null):
 }
 
 export default function ComparePage() {
+  const { isSignedIn, isLoaded } = useUser();
   const { localUserId: userId, isLoading } = useLocalUser();
-  if (isLoading) return (
+  const [, setLocation] = useLocation();
+
+  // Redirect unauthenticated users to sign-in so they don't see a blank page.
+  // Use a zero-timeout to avoid calling setLocation during render.
+  useEffect(() => {
+    if (isLoaded && !isSignedIn) {
+      setLocation(`${basePath}/sign-in`);
+    }
+  }, [isLoaded, isSignedIn, setLocation]);
+
+  if (isLoading || !isLoaded) return (
     <div className="flex-1 flex items-center justify-center min-h-screen">
       <Loader2 className="w-8 h-8 text-primary animate-spin" />
     </div>

@@ -35,9 +35,18 @@ const clerkPubKey = publishableKeyFromHost(
 const clerkProxyUrl = import.meta.env.VITE_CLERK_PROXY_URL;
 
 function stripBase(path: string): string {
-  return basePath && path.startsWith(basePath)
-    ? path.slice(basePath.length) || '/'
-    : path;
+  // Clerk sometimes passes an absolute URL (e.g. "https://host/compare") after
+  // sign-in. Extract just the pathname+search+hash so wouter sees a relative path.
+  let p = path;
+  try {
+    const url = new URL(path);
+    p = url.pathname + url.search + url.hash;
+  } catch {
+    // Not a URL — use path as-is
+  }
+  return basePath && p.startsWith(basePath)
+    ? p.slice(basePath.length) || '/'
+    : p;
 }
 
 // Deep-ocean branded appearance matching the Trails dark theme

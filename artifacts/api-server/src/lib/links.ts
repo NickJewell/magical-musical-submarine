@@ -78,20 +78,47 @@ interface ItunesData {
   trackViewUrl: string | null; // Apple Music URL — a first-class Odesli source
 }
 
-interface DeezerTrack { id: number; preview?: string }
+interface DeezerTrack { id: number; title?: string; preview?: string }
 interface DeezerSearchResp { data?: DeezerTrack[] }
 
-/** Deezer search — free, no auth. Returns Deezer track ID for embeds + 30s preview URL. Non-throwing. */
+/** Deezer search — free, no auth. Returns Deezer track ID for embeds + 30s preview URL. Non-throwing.
+ *
+ *  Cache TTL is 20 hours: Deezer preview URLs carry signed tokens that expire in ~24 hours,
+ *  so caching longer than that produces stale URLs that 403 on playback.
+ *
+ *  Search uses Deezer advanced syntax (`artist:"X" track:"Y"`) for precision; the plain
+ *  `artist title` fallback is tried when the structured query returns nothing.
+ */
 async function fetchDeezerData(artist: string, title: string): Promise<{ deezerId: string | null; previewUrl: string | null }> {
-  try {
-    const q = encodeURIComponent(`${artist} ${title}`);
-    const data = await httpGet<DeezerSearchResp>(
-      `https://api.deezer.com/search?q=${q}&limit=1`,
-      { cacheKey: `deezer:${artist.toLowerCase()}:${title.toLowerCase()}`, cacheTtlMs: 30 * 24 * 60 * 60 * 1000 },
+  const TTL_MS   = 20 * 60 * 60 * 1000; // 20 hours — safely under the ~24h token expiry
+  const cacheKey = `deezer:${artist.toLowerCase()}:${title.toLowerCase()}`;
+
+  const search = async (q: string): Promise<DeezerSearchResp> =>
+    httpGet<DeezerSearchResp>(
+      `https://api.deezer.com/search?q=${encodeURIComponent(q)}&limit=5`,
+      { cacheKey, cacheTtlMs: TTL_MS },
     );
-    const track = data.data?.[0];
-    if (!track) return { deezerId: null, previewUrl: null };
-    return { deezerId: String(track.id), previewUrl: track.preview ?? null };
+
+  try {
+    // 1. Structured search for best precision
+    const structured = `artist:"${artist}" track:"${title}"`;
+    let data = await search(structured);
+
+    // 2. Fall back to plain query if structured returns nothing
+    if (!data.data?.length) {
+      data = await search(`${artist} ${title}`);
+    }
+
+    // Pick the best match: prefer exact title match (case-insensitive), else first result
+    const results = data.data ?? [];
+    const titleLower = title.toLowerCase();
+    const best =
+      results.find((t) => t.title?.toLowerCase() === titleLower) ??
+      results.find((t) => t.title?.toLowerCase().startsWith(titleLower)) ??
+      results[0];
+
+    if (!best) return { deezerId: null, previewUrl: null };
+    return { deezerId: String(best.id), previewUrl: best.preview ?? null };
   } catch {
     return { deezerId: null, previewUrl: null };
   }

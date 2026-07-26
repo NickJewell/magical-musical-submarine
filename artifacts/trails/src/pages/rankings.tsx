@@ -349,7 +349,7 @@ function RankingsContent({ userId }: { userId: number }) {
       }
     };
     return [...list].sort(cmp);
-  }, [data, starOverrides, sortKey, sortDir]);
+  }, [data, starOverrides, sortKey, sortDir, removedMbids]);
 
   if (isLoading) {
     return (

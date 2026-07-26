@@ -15,6 +15,8 @@ import duelRouter from "./duel";
 import canonRouter from "./canon";
 import eloRouter from "./elo";
 import rankingsRouter from "./rankings";
+import compareRouter from "./compare";
+import discoverRouter from "./discover";
 
 const router: IRouter = Router();
 
@@ -34,5 +36,7 @@ router.use(duelRouter);
 router.use(canonRouter);
 router.use(eloRouter);
 router.use(rankingsRouter);
+router.use(compareRouter);
+router.use(discoverRouter);
 
 export default router;

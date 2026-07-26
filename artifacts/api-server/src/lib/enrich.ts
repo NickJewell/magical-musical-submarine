@@ -23,7 +23,7 @@ export interface SimilarTrack {
 
 // ---- Last.fm ----
 
-async function lastfmSimilarArtists(artist: string): Promise<SimilarArtist[]> {
+export async function lastfmSimilarArtists(artist: string): Promise<SimilarArtist[]> {
   if (!LASTFM_KEY) return [];
   const url =
     `${LASTFM_BASE}/?method=artist.getsimilar&artist=${encodeURIComponent(artist)}` +
@@ -46,7 +46,7 @@ async function lastfmSimilarArtists(artist: string): Promise<SimilarArtist[]> {
   }
 }
 
-async function lastfmSimilarTracks(artist: string, track: string): Promise<SimilarTrack[]> {
+export async function lastfmSimilarTracks(artist: string, track: string): Promise<SimilarTrack[]> {
   if (!LASTFM_KEY) return [];
   const url =
     `${LASTFM_BASE}/?method=track.getsimilar` +
@@ -93,7 +93,7 @@ async function lastfmTopTags(artist: string): Promise<string[]> {
   }
 }
 
-async function lastfmTagTopArtists(tag: string): Promise<SimilarArtist[]> {
+export async function lastfmTagTopArtists(tag: string): Promise<SimilarArtist[]> {
   if (!LASTFM_KEY) return [];
   const url =
     `${LASTFM_BASE}/?method=tag.gettopartists&tag=${encodeURIComponent(tag)}` +
@@ -156,6 +156,31 @@ export async function lastfmTopTrack(
     logger.debug({ err, artist }, "Last.fm artist.gettoptracks failed");
     return null;
   }
+}
+
+/**
+ * Aggregate Last.fm similar artists across a set of anchor artists (e.g. the
+ * three tracks of a dive section), ranked by how many anchors they neighbour
+ * (centrality) then summed match. Anchors themselves are excluded. Used to seed
+ * a "dive deeper into this section" expedition from the section's own tracks.
+ */
+export async function aggregateSimilarArtists(artists: string[]): Promise<SimilarArtist[]> {
+  const anchors = new Set(artists.map((a) => a.toLowerCase()));
+  const lists = await Promise.all(artists.map((a) => lastfmSimilarArtists(a).catch(() => [])));
+  const agg = new Map<string, { name: string; match: number; hits: number }>();
+  for (const list of lists) {
+    for (const a of list) {
+      const key = a.name.toLowerCase();
+      if (anchors.has(key)) continue;
+      const cur = agg.get(key) ?? { name: a.name, match: 0, hits: 0 };
+      cur.match += a.match;
+      cur.hits += 1;
+      agg.set(key, cur);
+    }
+  }
+  return [...agg.values()]
+    .sort((x, y) => y.hits - x.hits || y.match - x.match)
+    .map((a) => ({ name: a.name, match: a.match }));
 }
 
 // ---- Public API ----

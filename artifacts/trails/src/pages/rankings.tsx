@@ -5,6 +5,7 @@ import {
   Loader2, Star, Trophy, ArrowUp, ArrowDown, Swords, Radio,
 } from 'lucide-react';
 import { TrackPreviewPill } from '@/components/TrackPreviewPill';
+import { DiveFromTrackButton } from '@/components/DiveFromTrackButton';
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
 
@@ -184,6 +185,15 @@ function RankRow({
             <TrackPreviewPill title={track.title} artist={track.artist} />
           </div>
         </div>
+
+        {/* Dive from this track */}
+        <DiveFromTrackButton
+          variant="compact"
+          mbid={track.mbid}
+          title={track.title}
+          artist={track.artist}
+          className="shrink-0"
+        />
 
         {/* Stars */}
         <div className="shrink-0">

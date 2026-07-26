@@ -1,10 +1,11 @@
 import { Link, useLocation } from 'wouter';
 import { useUser } from '@clerk/react';
-import { Home, ScrollText, Trophy, ListPlus } from 'lucide-react';
+import { Home, ScrollText, Trophy, ListPlus, Scale } from 'lucide-react';
 
 const NAV_ITEMS = [
   { href: '/',          icon: Home,       label: 'Home'        },
   { href: '/feed',      icon: ListPlus,   label: 'Rank Tracks' },
+  { href: '/compare',   icon: Scale,      label: 'Compare'     },
   { href: '/timeline',  icon: ScrollText, label: 'Timeline'    },
   { href: '/rankings',  icon: Trophy,     label: 'Rankings'    },
 ];
@@ -42,7 +43,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
               <Link
                 key={href}
                 href={href}
-                className={`flex flex-col items-center gap-0.5 px-2.5 py-1.5 rounded-xl transition-colors ${
+                className={`flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-xl transition-colors ${
                   active ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
                 }`}
               >

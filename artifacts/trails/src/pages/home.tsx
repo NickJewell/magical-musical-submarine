@@ -14,6 +14,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Loader2, RefreshCw, Check, Pencil } from 'lucide-react';
 import { InlineDiveRename } from '@/components/InlineDiveRename';
 import { PairwiseSlider } from '@/components/PairwiseSlider';
+import { DiscoverCard } from '@/components/DiscoverCard';
 import { useToast } from '@/hooks/use-toast';
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
@@ -218,6 +219,9 @@ function HomeContent({ userId, onNavigate }: { userId: number; onNavigate: (path
       {/* ── Dive tab ── */}
       {activeTab === 'dive' && (
         <div className="space-y-6 animate-in fade-in duration-300">
+
+          {/* Discover & rank — a fast rate-to-rank feed */}
+          <DiscoverCard userId={userId} />
 
           {/* Pairwise taste check */}
           {activePair && (

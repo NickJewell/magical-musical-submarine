@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Loader2, Star, Sparkles, SkipForward } from 'lucide-react';
-import { InlinePlayer, type ResolvedLinks } from '@/components/InlinePlayer';
+import { TrackPreviewPill } from '@/components/TrackPreviewPill';
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
 
@@ -12,38 +12,40 @@ interface DiscoverTrack {
   year: number | null;
 }
 
+interface DiscoverResponse {
+  track?: DiscoverTrack;
+  artworkUrl?: string | null;
+}
+
 /**
  * A rapid "rate to rank" feed on Home: collaborative-filtering pulls a fresh
  * track from what the user already ranks highest; a star (or skip) records it
  * and immediately serves the next — the fastest way to grow the rankings table.
- * Preview uses the same lazy InlinePlayer as elsewhere.
  */
 export function DiscoverCard({ userId }: { userId: number }) {
-  const [track, setTrack] = useState<DiscoverTrack | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [empty, setEmpty] = useState(false);
-  const [saving, setSaving] = useState<number | 'skip' | null>(null);
-  const [added, setAdded] = useState(0);
+  const [track, setTrack]       = useState<DiscoverTrack | null>(null);
+  const [artwork, setArtwork]   = useState<string | null>(null);
+  const [loading, setLoading]   = useState(true);
+  const [empty, setEmpty]       = useState(false);
+  const [saving, setSaving]     = useState<number | 'skip' | null>(null);
+  const [added, setAdded]       = useState(0);
+  const [hoveredStar, setHoveredStar] = useState<number | null>(null);
   const servedRef = useRef<string[]>([]);
-
-  const [links, setLinks] = useState<ResolvedLinks | null>(null);
-  const [loadingLinks, setLoadingLinks] = useState(false);
-  const [playerActive, setPlayerActive] = useState(false);
 
   const loadNext = useCallback(async () => {
     setLoading(true);
-    setLinks(null);
-    setPlayerActive(false);
+    setArtwork(null);
     try {
       const params = new URLSearchParams({
         userId: String(userId),
         exclude: servedRef.current.slice(-40).join(','),
       });
       const r = await fetch(`${basePath}/api/discover/track?${params}`);
-      const d = await r.json();
+      const d: DiscoverResponse = await r.json();
       if (!d.track) { setTrack(null); setEmpty(true); }
       else {
         setTrack(d.track);
+        setArtwork(d.artworkUrl ?? null);
         servedRef.current.push(`${d.track.title}|${d.track.artist}`.toLowerCase());
         setEmpty(false);
       }
@@ -56,24 +58,10 @@ export function DiscoverCard({ userId }: { userId: number }) {
 
   useEffect(() => { loadNext(); }, [loadNext]);
 
-  const handleNeedLinks = useCallback(async () => {
-    if (!track || loadingLinks) return;
-    if (links?.spotifyTrackId || links?.youtubeVideoId || links?.deezerId) return;
-    setLoadingLinks(true);
-    try {
-      const params = new URLSearchParams({
-        mbid: track.mbid, type: track.type, title: track.title, artist: track.artist,
-      });
-      const r = await fetch(`${basePath}/api/links?${params}`);
-      if (r.ok) setLinks(await r.json());
-    } finally {
-      setLoadingLinks(false);
-    }
-  }, [track, links, loadingLinks]);
-
   const rate = async (score: number) => {
     if (!track || saving !== null) return;
     setSaving(score);
+    setHoveredStar(null);
     try {
       await fetch(`${basePath}/api/focus-rating`, {
         method: 'POST',
@@ -84,16 +72,19 @@ export function DiscoverCard({ userId }: { userId: number }) {
         }),
       });
       setAdded((n) => n + 1);
-    } catch { /* best-effort — advance regardless */ }
+    } catch { /* best-effort */ }
     finally {
       setSaving(null);
       loadNext();
     }
   };
 
-  const skip = () => { if (saving === null) { setSaving('skip'); loadNext().finally(() => setSaving(null)); } };
-
-  const artwork = (links as (ResolvedLinks & { artworkUrl?: string | null }) | null)?.artworkUrl ?? null;
+  const skip = () => {
+    if (saving !== null) return;
+    setSaving('skip');
+    setHoveredStar(null);
+    loadNext().finally(() => setSaving(null));
+  };
 
   return (
     <div className="rounded-2xl border border-primary/15 bg-secondary/10 p-5 space-y-4">
@@ -121,7 +112,7 @@ export function DiscoverCard({ userId }: { userId: number }) {
         </div>
       ) : (
         <>
-          {/* Track */}
+          {/* Track info */}
           <div className="flex items-center gap-3">
             <div className="w-14 h-14 rounded-xl bg-secondary/50 border border-primary/10 overflow-hidden relative flex items-center justify-center shrink-0">
               <span className="text-lg font-mono font-bold text-primary/20 absolute">
@@ -132,39 +123,39 @@ export function DiscoverCard({ userId }: { userId: number }) {
                   onError={(e) => { e.currentTarget.style.display = 'none'; }} />
               )}
             </div>
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <p className="text-base font-medium text-foreground truncate leading-snug">{track.title}</p>
               <p className="text-sm text-muted-foreground truncate">{track.artist}</p>
             </div>
           </div>
 
-          {/* Preview */}
-          <InlinePlayer
-            key={track.mbid}
-            recId={0}
-            links={links}
-            isLoadingLinks={loadingLinks}
-            onNeedLinks={handleNeedLinks}
-            activeRecId={playerActive ? 0 : null}
-            onActivate={(id) => { setPlayerActive(id !== null); if (id !== null) handleNeedLinks(); }}
-          />
+          {/* Preview pill */}
+          <TrackPreviewPill key={track.mbid} title={track.title} artist={track.artist} />
 
-          {/* Rate → adds to rankings and advances */}
+          {/* Stars + skip */}
           <div className="flex items-center justify-between pt-1">
-            <div className="flex items-center gap-1">
-              {[1, 2, 3].map((s) => (
-                <button
-                  key={s}
-                  onClick={() => rate(s)}
-                  disabled={saving !== null}
-                  className="p-1 transition-transform hover:scale-110 disabled:opacity-40"
-                  title={`${s}/3`}
-                >
-                  <Star className={`w-6 h-6 transition-colors ${
-                    saving === s ? 'fill-amber-400 text-amber-400' : 'fill-transparent text-muted-foreground/30 hover:text-amber-400/70'
-                  }`} />
-                </button>
-              ))}
+            <div
+              className="flex items-center gap-1"
+              onMouseLeave={() => setHoveredStar(null)}
+            >
+              {[1, 2, 3].map((s) => {
+                const active = typeof saving === 'number' ? saving : (hoveredStar ?? 0);
+                const filled = s <= active;
+                return (
+                  <button
+                    key={s}
+                    onClick={() => rate(s)}
+                    onMouseEnter={() => setHoveredStar(s)}
+                    disabled={saving !== null}
+                    className="p-1 transition-transform hover:scale-110 disabled:opacity-40"
+                    title={`${s}/3`}
+                  >
+                    <Star className={`w-6 h-6 transition-colors ${
+                      filled ? 'fill-amber-400 text-amber-400' : 'fill-transparent text-muted-foreground/30'
+                    }`} />
+                  </button>
+                );
+              })}
               <span className="text-[10px] font-mono text-muted-foreground/40 uppercase tracking-wide ml-2">
                 tap to rank
               </span>

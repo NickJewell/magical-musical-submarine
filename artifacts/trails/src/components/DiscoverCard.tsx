@@ -20,13 +20,6 @@ interface InfoState {
   track: string | null;
 }
 
-/**
- * A rapid "rate to rank" feed on Home.
- *
- * Layout: full-bleed three-column row (breaks out of the parent p-6 with -mx-6).
- * Left panel = artist bio, centre = card, right panel = song blurb.
- * Info blurbs load eagerly from /api/discover/info as soon as each track arrives.
- */
 export function DiscoverCard({ userId }: { userId: number }) {
   const [track, setTrack]             = useState<DiscoverTrack | null>(null);
   const [artwork, setArtwork]         = useState<string | null>(null);
@@ -120,26 +113,12 @@ export function DiscoverCard({ userId }: { userId: number }) {
     loadNext().finally(() => setSaving(null));
   };
 
-  // Show info panels whenever a track is present (loading state shows skeleton)
-  const showPanels = !!(track && !empty);
-
   return (
-    /* -mx-6 breaks out of the parent's p-6 padding to use full viewport width */
-    <div className="-mx-6 flex items-start gap-1.5 sm:gap-2">
+    <div className="space-y-3">
 
-      {/* ── LEFT panel: Artist ── */}
-      <InfoPanel
-        label="Artist"
-        heading={track?.artist ?? ''}
-        text={info?.artist ?? null}
-        loading={infoLoading}
-        visible={showPanels}
-      />
+      {/* ── Main card ── */}
+      <div className="rounded-2xl border border-primary/15 bg-secondary/10 p-5 space-y-3">
 
-      {/* ── Centre: the card ── */}
-      <div className="flex-1 min-w-0 rounded-2xl border border-primary/15 bg-secondary/10 p-3.5 sm:p-5 space-y-3">
-
-        {/* Header */}
         <div className="flex items-center justify-between">
           <span className="flex items-center gap-1.5 text-[10px] font-mono text-primary/70 uppercase tracking-widest">
             <Sparkles className="w-3 h-3" /> Discover &amp; rank
@@ -152,20 +131,20 @@ export function DiscoverCard({ userId }: { userId: number }) {
         </div>
 
         {loading && !track ? (
-          <div className="flex items-center justify-center py-8">
-            <Loader2 className="w-5 h-5 text-primary animate-spin" />
+          <div className="flex items-center justify-center py-10">
+            <Loader2 className="w-6 h-6 text-primary animate-spin" />
           </div>
         ) : empty || !track ? (
-          <div className="text-center py-5 space-y-1">
+          <div className="text-center py-6 space-y-1">
             <p className="text-sm text-muted-foreground">No fresh picks right now.</p>
-            <p className="text-xs text-muted-foreground/60">Rate or seed a few tracks first.</p>
+            <p className="text-xs text-muted-foreground/60">Rate or seed a few tracks first, then recommendations will flow.</p>
           </div>
         ) : (
           <>
-            {/* Track: thumbnail + title/artist */}
-            <div className="flex items-center gap-2.5">
-              <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-secondary/50 border border-primary/10 overflow-hidden relative flex items-center justify-center shrink-0">
-                <span className="text-base font-mono font-bold text-primary/20 absolute">
+            {/* Track thumbnail + title */}
+            <div className="flex items-center gap-3">
+              <div className="w-14 h-14 rounded-xl bg-secondary/50 border border-primary/10 overflow-hidden relative flex items-center justify-center shrink-0">
+                <span className="text-lg font-mono font-bold text-primary/20 absolute">
                   {(track.artist[0] ?? track.title[0] ?? '?').toUpperCase()}
                 </span>
                 {artwork && (
@@ -173,23 +152,22 @@ export function DiscoverCard({ userId }: { userId: number }) {
                     onError={(e) => { e.currentTarget.style.display = 'none'; }} />
                 )}
               </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm sm:text-base font-medium text-foreground truncate leading-snug">{track.title}</p>
-                <p className="text-xs sm:text-sm text-muted-foreground truncate">{track.artist}</p>
+              <div className="min-w-0">
+                <p className="text-base font-medium text-foreground truncate leading-snug">{track.title}</p>
+                <p className="text-sm text-muted-foreground truncate">{track.artist}</p>
               </div>
             </div>
 
-            {/* Preview pill + Spotify */}
+            {/* Preview + Spotify */}
             <div className="flex items-center gap-2">
               <TrackPreviewPill key={track.mbid} title={track.title} artist={track.artist} />
               <a
                 href={`https://open.spotify.com/search/${encodeURIComponent(`${track.title} ${track.artist}`)}/tracks`}
-                target="_blank"
-                rel="noopener noreferrer"
+                target="_blank" rel="noopener noreferrer"
                 title="Open in Spotify"
-                className="flex items-center justify-center w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-[#1DB954]/10 hover:bg-[#1DB954]/25 border border-[#1DB954]/30 hover:border-[#1DB954]/60 transition-colors shrink-0"
+                className="flex items-center justify-center w-7 h-7 rounded-full bg-[#1DB954]/10 hover:bg-[#1DB954]/25 border border-[#1DB954]/30 hover:border-[#1DB954]/60 transition-colors shrink-0"
               >
-                <SiSpotify className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-[#1DB954]" />
+                <SiSpotify className="w-3.5 h-3.5 text-[#1DB954]" />
               </a>
             </div>
 
@@ -213,38 +191,23 @@ export function DiscoverCard({ userId }: { userId: number }) {
             )}
 
             {/* Stars + skip */}
-            <div
-              className="flex items-center justify-between"
-              onMouseLeave={() => setHoveredStar(null)}
-            >
-              <div className="flex items-center gap-0.5">
+            <div className="flex items-center justify-between" onMouseLeave={() => setHoveredStar(null)}>
+              <div className="flex items-center gap-1">
                 {[1, 2, 3].map((s) => {
                   const active = typeof saving === 'number' ? saving : (hoveredStar ?? 0);
-                  const filled = s <= active;
                   return (
-                    <button
-                      key={s}
-                      onClick={() => rate(s)}
-                      onMouseEnter={() => setHoveredStar(s)}
-                      disabled={saving !== null}
-                      className="p-1 transition-transform hover:scale-110 disabled:opacity-40"
-                      title={`${s}/3`}
-                    >
-                      <Star className={`w-5 h-5 sm:w-6 sm:h-6 transition-colors ${
-                        filled ? 'fill-amber-400 text-amber-400' : 'fill-transparent text-muted-foreground/30'
+                    <button key={s} onClick={() => rate(s)} onMouseEnter={() => setHoveredStar(s)}
+                      disabled={saving !== null} className="p-1 transition-transform hover:scale-110 disabled:opacity-40">
+                      <Star className={`w-6 h-6 transition-colors ${
+                        s <= active ? 'fill-amber-400 text-amber-400' : 'fill-transparent text-muted-foreground/30'
                       }`} />
                     </button>
                   );
                 })}
-                <span className="text-[10px] font-mono text-muted-foreground/40 uppercase tracking-wide ml-1">
-                  tap to rank
-                </span>
+                <span className="text-[10px] font-mono text-muted-foreground/40 uppercase tracking-wide ml-2">tap to rank</span>
               </div>
-              <button
-                onClick={skip}
-                disabled={saving !== null}
-                className="flex items-center gap-1 text-[10px] font-mono text-muted-foreground/50 hover:text-muted-foreground uppercase tracking-widest disabled:opacity-40"
-              >
+              <button onClick={skip} disabled={saving !== null}
+                className="flex items-center gap-1 text-[10px] font-mono text-muted-foreground/50 hover:text-muted-foreground uppercase tracking-widest disabled:opacity-40">
                 Skip <SkipForward className="w-3 h-3" />
               </button>
             </div>
@@ -252,58 +215,34 @@ export function DiscoverCard({ userId }: { userId: number }) {
         )}
       </div>
 
-      {/* ── RIGHT panel: Song ── */}
-      <InfoPanel
-        label="Song"
-        heading={track?.title ?? ''}
-        text={info?.track ?? null}
-        loading={infoLoading}
-        visible={showPanels}
-      />
+      {/* ── Info panels — stacked below the card ── */}
+      {track && !empty && (
+        <>
+          <InfoPanel label="Artist" heading={track.artist} text={info?.artist ?? null} loading={infoLoading && !info} />
+          <InfoPanel label="Song"   heading={track.title}  text={info?.track  ?? null} loading={infoLoading && !info} />
+        </>
+      )}
     </div>
   );
 }
 
-/** Side info panel — slides in when visible. Scrollable for long blurbs. */
 function InfoPanel({
-  label, heading, text, loading, visible,
-}: {
-  label: string;
-  heading: string;
-  text: string | null;
-  loading: boolean;
-  visible: boolean;
-}) {
+  label, heading, text, loading,
+}: { label: string; heading: string; text: string | null; loading: boolean }) {
   return (
-    <div
-      className={`
-        w-[26vw] max-w-[180px] shrink-0 self-stretch
-        flex flex-col
-        rounded-xl border border-border/25 bg-secondary/15
-        overflow-hidden
-        transition-all duration-300 ease-out
-        ${visible ? 'opacity-100 translate-x-0' : 'opacity-0 pointer-events-none'}
-      `}
-    >
-      {/* Fixed header */}
-      <div className="px-3 pt-3 pb-1.5 shrink-0">
-        <p className="text-[10px] font-mono text-primary/60 uppercase tracking-widest mb-1">{label}</p>
-        <p className="text-sm font-semibold text-foreground leading-snug line-clamp-2">{heading}</p>
-      </div>
-
-      {/* Scrollable blurb */}
-      <div className="flex-1 overflow-y-auto px-3 pb-3 min-h-0 overscroll-contain">
-        {loading && !text ? (
-          <div className="flex items-center gap-1.5 text-muted-foreground/40 pt-1">
-            <Loader2 className="w-3 h-3 animate-spin shrink-0" />
-            <span className="text-[10px] font-mono uppercase tracking-wide">Reading…</span>
-          </div>
-        ) : text ? (
-          <p className="text-xs leading-relaxed text-muted-foreground pt-0.5">{text}</p>
-        ) : !loading ? (
-          <p className="text-xs italic text-muted-foreground/40 pt-1">No write-up.</p>
-        ) : null}
-      </div>
+    <div className="rounded-2xl border border-border/30 bg-secondary/15 p-5 space-y-2 animate-in fade-in duration-300">
+      <p className="text-[10px] font-mono text-primary/60 uppercase tracking-widest">{label}</p>
+      <p className="font-serif text-lg font-semibold text-foreground leading-snug">{heading}</p>
+      {loading ? (
+        <div className="flex items-center gap-2 text-muted-foreground/40 pt-1">
+          <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+          <span className="text-sm font-mono uppercase tracking-wide">Reading up…</span>
+        </div>
+      ) : text ? (
+        <p className="font-serif text-lg leading-[1.75] text-primary-foreground/90">{text}</p>
+      ) : (
+        <p className="font-serif text-lg italic text-muted-foreground/40">No write-up found.</p>
+      )}
     </div>
   );
 }

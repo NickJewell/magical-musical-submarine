@@ -216,12 +216,13 @@ export function DiscoverCard({ userId }: { userId: number }) {
       </div>
 
       {/* ── Info panels — stacked below the card ── */}
-      {track && !empty && (
-        <>
-          <InfoPanel label="Artist" heading={track.artist} text={info?.artist ?? null} loading={infoLoading && !info} />
-          <InfoPanel label="Song"   heading={track.title}  text={info?.track  ?? null} loading={infoLoading && !info} />
-        </>
-      )}
+      {track && !empty && (() => {
+        const stillLoading = infoLoading && !info;
+        if (stillLoading) return <InfoPanel label="Song" heading={track.title} text={null} loading />;
+        if (info?.track)   return <InfoPanel label="Song"   heading={track.title}  text={info.track}   loading={false} />;
+        if (info?.artist)  return <InfoPanel label="Artist" heading={track.artist} text={info.artist}  loading={false} />;
+        return null;
+      })()}
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { ensureUserTracksSeeded, getRankedTracks } from "../lib/elo";
 import { lastfmSimilarTracks, lastfmSimilarArtists, lastfmTopTrack } from "../lib/enrich";
 import { resolve } from "../lib/musicbrainz";
+import { fetchItunesData } from "../lib/links";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
@@ -86,21 +87,27 @@ router.get("/discover/track", async (req, res): Promise<void> => {
   const ordered = [...candidates.values()].sort((a, b) => b.match - a.match);
   const pick = ordered[Math.floor(Math.random() * Math.min(5, ordered.length))];
 
-  // Try to attach a real MBID (dedups with dive recs), but don't stall the feed.
+  // Try to attach a real MBID and artwork in parallel — don't stall the feed.
   let mbid = `lastfm:${pick.artist.toLowerCase().replace(/[^\w]/g, "-")}:${pick.title.toLowerCase().replace(/[^\w]/g, "-")}`;
   let year: number | null = null;
-  try {
-    const resolved = await resolve(
-      { artist: pick.artist, title: pick.title, type: "track", likely_known: "medium" },
-      3500,
-    );
-    if (resolved) { mbid = resolved.mbid; year = resolved.year; }
-  } catch (err) {
-    logger.debug({ err, pick }, "discover: MB resolve failed — using synthetic key");
+
+  const [resolved, itunes] = await Promise.allSettled([
+    resolve({ artist: pick.artist, title: pick.title, type: "track", likely_known: "medium" }, 3500),
+    fetchItunesData(pick.artist, pick.title),
+  ]);
+
+  if (resolved.status === "fulfilled" && resolved.value) {
+    mbid = resolved.value.mbid;
+    year = resolved.value.year;
+  } else if (resolved.status === "rejected") {
+    logger.debug({ err: resolved.reason, pick }, "discover: MB resolve failed — using synthetic key");
   }
+
+  const artworkUrl = itunes.status === "fulfilled" ? itunes.value.artworkUrl : null;
 
   res.json({
     track: { mbid, type: "track", title: pick.title, artist: pick.artist, year },
+    artworkUrl,
   });
 });
 

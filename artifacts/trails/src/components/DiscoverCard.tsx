@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Loader2, Star, Sparkles, SkipForward } from 'lucide-react';
+import { Loader2, Star, Sparkles, SkipForward, PenLine } from 'lucide-react';
 import { TrackPreviewPill } from '@/components/TrackPreviewPill';
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
@@ -23,18 +23,22 @@ interface DiscoverResponse {
  * and immediately serves the next — the fastest way to grow the rankings table.
  */
 export function DiscoverCard({ userId }: { userId: number }) {
-  const [track, setTrack]       = useState<DiscoverTrack | null>(null);
-  const [artwork, setArtwork]   = useState<string | null>(null);
-  const [loading, setLoading]   = useState(true);
-  const [empty, setEmpty]       = useState(false);
-  const [saving, setSaving]     = useState<number | 'skip' | null>(null);
-  const [added, setAdded]       = useState(0);
+  const [track, setTrack]             = useState<DiscoverTrack | null>(null);
+  const [artwork, setArtwork]         = useState<string | null>(null);
+  const [loading, setLoading]         = useState(true);
+  const [empty, setEmpty]             = useState(false);
+  const [saving, setSaving]           = useState<number | 'skip' | null>(null);
+  const [added, setAdded]             = useState(0);
   const [hoveredStar, setHoveredStar] = useState<number | null>(null);
+  const [note, setNote]               = useState('');
+  const [noteOpen, setNoteOpen]       = useState(false);
   const servedRef = useRef<string[]>([]);
 
   const loadNext = useCallback(async () => {
     setLoading(true);
     setArtwork(null);
+    setNote('');
+    setNoteOpen(false);
     try {
       const params = new URLSearchParams({
         userId: String(userId),
@@ -69,6 +73,7 @@ export function DiscoverCard({ userId }: { userId: number }) {
         body: JSON.stringify({
           userId, mbid: track.mbid, title: track.title, artist: track.artist,
           listenState: 'known', score,
+          reviewText: note.trim() || undefined,
         }),
       });
       setAdded((n) => n + 1);
@@ -126,14 +131,36 @@ export function DiscoverCard({ userId }: { userId: number }) {
             <div className="min-w-0 flex-1">
               <p className="text-base font-medium text-foreground truncate leading-snug">{track.title}</p>
               <p className="text-sm text-muted-foreground truncate">{track.artist}</p>
+              {track.year && (
+                <p className="text-xs text-muted-foreground/50">{track.year}</p>
+              )}
             </div>
           </div>
 
           {/* Preview pill */}
           <TrackPreviewPill key={track.mbid} title={track.title} artist={track.artist} />
 
+          {/* Notes */}
+          {noteOpen ? (
+            <textarea
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="What do you notice? Mood, memory, texture…"
+              rows={2}
+              autoFocus
+              className="w-full rounded-xl bg-secondary/30 border border-primary/20 focus:border-primary/50 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/40 resize-none focus:outline-none"
+            />
+          ) : (
+            <button
+              onClick={() => setNoteOpen(true)}
+              className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground/40 hover:text-primary/60 uppercase tracking-widest transition-colors"
+            >
+              <PenLine className="w-3 h-3" /> add a note
+            </button>
+          )}
+
           {/* Stars + skip */}
-          <div className="flex items-center justify-between pt-1">
+          <div className="flex items-center justify-between">
             <div
               className="flex items-center gap-1"
               onMouseLeave={() => setHoveredStar(null)}

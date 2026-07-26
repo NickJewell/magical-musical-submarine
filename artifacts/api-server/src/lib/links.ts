@@ -157,7 +157,7 @@ async function fetchDeezerData(artist: string, title: string): Promise<{ deezerI
 }
 
 /** Exported for the duel preview route — same caching path as full link resolution. */
-export { fetchDeezerData };
+export { fetchDeezerData, fetchItunesData };
 
 /** iTunes Search API — returns artwork (upscaled) and Apple Music track URL. Non-throwing. */
 async function fetchItunesData(artist: string, title: string): Promise<ItunesData> {

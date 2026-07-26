@@ -277,7 +277,7 @@ function InfoPanel({
   return (
     <div
       className={`
-        w-[22vw] max-w-[120px] shrink-0 self-stretch
+        w-[88vw] max-w-[480px] shrink-0 self-stretch
         flex flex-col
         rounded-xl border border-border/25 bg-secondary/15
         overflow-hidden

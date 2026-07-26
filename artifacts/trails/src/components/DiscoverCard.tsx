@@ -277,7 +277,7 @@ function InfoPanel({
   return (
     <div
       className={`
-        w-[88vw] max-w-[480px] shrink-0 self-stretch
+        w-[26vw] max-w-[180px] shrink-0 self-stretch
         flex flex-col
         rounded-xl border border-border/25 bg-secondary/15
         overflow-hidden
@@ -286,22 +286,22 @@ function InfoPanel({
       `}
     >
       {/* Fixed header */}
-      <div className="px-2.5 pt-3 pb-1.5 shrink-0">
-        <p className="text-[9px] font-mono text-primary/60 uppercase tracking-widest mb-0.5">{label}</p>
-        <p className="text-[11px] font-semibold text-foreground/90 leading-tight line-clamp-2">{heading}</p>
+      <div className="px-3 pt-3 pb-1.5 shrink-0">
+        <p className="text-[10px] font-mono text-primary/60 uppercase tracking-widest mb-1">{label}</p>
+        <p className="text-sm font-semibold text-foreground leading-snug line-clamp-2">{heading}</p>
       </div>
 
       {/* Scrollable blurb */}
-      <div className="flex-1 overflow-y-auto px-2.5 pb-3 min-h-0 overscroll-contain">
+      <div className="flex-1 overflow-y-auto px-3 pb-3 min-h-0 overscroll-contain">
         {loading && !text ? (
-          <div className="flex items-center gap-1 text-muted-foreground/40 pt-1">
+          <div className="flex items-center gap-1.5 text-muted-foreground/40 pt-1">
             <Loader2 className="w-3 h-3 animate-spin shrink-0" />
-            <span className="text-[9px] font-mono uppercase tracking-wide">Reading…</span>
+            <span className="text-[10px] font-mono uppercase tracking-wide">Reading…</span>
           </div>
         ) : text ? (
-          <p className="text-[11px] leading-relaxed text-muted-foreground/80 pt-0.5">{text}</p>
+          <p className="text-xs leading-relaxed text-muted-foreground pt-0.5">{text}</p>
         ) : !loading ? (
-          <p className="text-[10px] italic text-muted-foreground/30 pt-1">No write-up.</p>
+          <p className="text-xs italic text-muted-foreground/40 pt-1">No write-up.</p>
         ) : null}
       </div>
     </div>

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Loader2, Star, Sparkles, SkipForward, PenLine } from 'lucide-react';
+import { SiSpotify } from 'react-icons/si';
 import { TrackPreviewPill } from '@/components/TrackPreviewPill';
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
@@ -137,8 +138,19 @@ export function DiscoverCard({ userId }: { userId: number }) {
             </div>
           </div>
 
-          {/* Preview pill */}
-          <TrackPreviewPill key={track.mbid} title={track.title} artist={track.artist} />
+          {/* Preview pill + Spotify link */}
+          <div className="flex items-center gap-2">
+            <TrackPreviewPill key={track.mbid} title={track.title} artist={track.artist} />
+            <a
+              href={`https://open.spotify.com/search/${encodeURIComponent(`${track.title} ${track.artist}`)}/tracks`}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Open in Spotify"
+              className="flex items-center justify-center w-7 h-7 rounded-full bg-[#1DB954]/10 hover:bg-[#1DB954]/25 border border-[#1DB954]/30 hover:border-[#1DB954]/60 transition-colors shrink-0"
+            >
+              <SiSpotify className="w-3.5 h-3.5 text-[#1DB954]" />
+            </a>
+          </div>
 
           {/* Notes */}
           {noteOpen ? (

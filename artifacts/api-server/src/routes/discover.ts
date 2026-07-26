@@ -2,7 +2,10 @@ import { Router, type IRouter } from "express";
 import { db, seedsTable, discoverPoolTable } from "@workspace/db";
 import { eq, sql, notInArray } from "drizzle-orm";
 import { ensureUserTracksSeeded, getRankedTracks } from "../lib/elo";
-import { lastfmSimilarTracks, lastfmSimilarArtists, lastfmTopTrack } from "../lib/enrich";
+import {
+  lastfmSimilarTracks, lastfmSimilarArtists, lastfmTopTrack,
+  lastfmArtistBlurb, lastfmTrackBlurb,
+} from "../lib/enrich";
 import { resolve } from "../lib/musicbrainz";
 import { logger } from "../lib/logger";
 import {
@@ -165,6 +168,24 @@ router.get("/discover/track", async (req, res): Promise<void> => {
     : (await tryCF(ranked, seedTracks, excluded)) ?? (await tryPool(excluded, matchedSpotifyIds));
 
   res.json({ track: track ?? null });
+});
+
+/**
+ * GET /discover/info — short "info bubble" blurbs about an artist and a track,
+ * from Last.fm (artist.getInfo + track.getInfo). Either may be null when Last.fm
+ * has no write-up. Cheap + cached; fired when the user opens a track's preview.
+ */
+router.get("/discover/info", async (req, res): Promise<void> => {
+  const artist = typeof req.query.artist === "string" ? req.query.artist.trim() : "";
+  const title = typeof req.query.title === "string" ? req.query.title.trim() : "";
+  if (!artist) { res.status(400).json({ error: "artist required" }); return; }
+
+  const [artistBlurb, trackBlurb] = await Promise.all([
+    lastfmArtistBlurb(artist),
+    title ? lastfmTrackBlurb(artist, title) : Promise.resolve(null),
+  ]);
+
+  res.json({ artist: artistBlurb, track: trackBlurb });
 });
 
 /** Extract a playlist id from a raw id or a full Spotify URL. */

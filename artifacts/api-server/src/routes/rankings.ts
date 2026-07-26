@@ -1,9 +1,9 @@
 import { Router, type IRouter } from "express";
 import {
   db, trackEloTable, ratingsTable, recommendationsTable,
-  diveStepsTable, divesTable, focusRatingsTable,
+  diveStepsTable, divesTable, focusRatingsTable, seedsTable,
 } from "@workspace/db";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and, inArray } from "drizzle-orm";
 import { ensureUserTracksSeeded } from "../lib/elo";
 
 const router: IRouter = Router();
@@ -140,6 +140,56 @@ router.get("/rankings", async (req, res): Promise<void> => {
   });
 
   res.json({ tracks: rows });
+});
+
+/**
+ * DELETE /rankings/track?userId=&mbid=
+ * Permanently remove a track from the user's rankings. Clears every write path
+ * so ensureUserTracksSeeded won't resurrect the ELO row on the next load:
+ *   • track_elo        — the ELO spine
+ *   • focus_ratings    — star adjustments via the focus-rating path
+ *   • seeds            — user-seeded tracks
+ *   • ratings          — dive-rec star ratings for this user's dives
+ */
+router.delete("/rankings/track", async (req, res): Promise<void> => {
+  const userId = Number(req.query.userId);
+  const mbid   = String(req.query.mbid ?? "").trim();
+  if (!userId || !mbid) {
+    res.status(400).json({ error: "userId and mbid required" });
+    return;
+  }
+
+  // Find all recommendation IDs for this mbid belonging to this user's dives.
+  const userRecIds = await db
+    .select({ id: recommendationsTable.id })
+    .from(recommendationsTable)
+    .innerJoin(diveStepsTable, eq(recommendationsTable.diveStepId, diveStepsTable.id))
+    .innerJoin(divesTable, eq(diveStepsTable.diveId, divesTable.id))
+    .where(and(eq(divesTable.userId, userId), eq(recommendationsTable.mbid, mbid)))
+    .catch(() => []);
+
+  const recIds = userRecIds.map((r) => r.id);
+
+  await Promise.all([
+    // Dive-rec ratings
+    recIds.length > 0
+      ? db.delete(ratingsTable).where(inArray(ratingsTable.recId, recIds)).catch(() => {})
+      : Promise.resolve(),
+    // Focus ratings (mbid-keyed write path)
+    db.delete(focusRatingsTable)
+      .where(and(eq(focusRatingsTable.userId, userId), eq(focusRatingsTable.mbid, mbid)))
+      .catch(() => {}),
+    // Seeds
+    db.delete(seedsTable)
+      .where(and(eq(seedsTable.userId, userId), eq(seedsTable.mbid, mbid)))
+      .catch(() => {}),
+    // ELO spine
+    db.delete(trackEloTable)
+      .where(and(eq(trackEloTable.userId, userId), eq(trackEloTable.mbid, mbid)))
+      .catch(() => {}),
+  ]);
+
+  res.json({ deleted: true, mbid });
 });
 
 export default router;

@@ -106,7 +106,11 @@ function isDeezerUrlFresh(url?: string | null): boolean {
  *  Separate cache keys for structured vs plain fallback query prevent a cached
  *  empty structured result from short-circuiting the fallback.
  */
-async function fetchDeezerData(artist: string, title: string): Promise<{ deezerId: string | null; previewUrl: string | null }> {
+async function fetchDeezerData(
+  artist: string,
+  title: string,
+  { artistFallback = false }: { artistFallback?: boolean } = {},
+): Promise<{ deezerId: string | null; previewUrl: string | null }> {
   const SEARCH_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days — IDs are stable; we validate freshness manually
   const artistKey = artist.toLowerCase().trim();
   const titleKey  = title.toLowerCase().trim();
@@ -140,6 +144,25 @@ async function fetchDeezerData(artist: string, title: string): Promise<{ deezerI
 
   try {
     let best = await runSearch();
+
+    // Artist-level fallback: when the track isn't in Deezer's catalog, search for
+    // any track from this artist that has a preview URL — useful for Discover where
+    // a taste of the artist is better than a dead button.
+    if (!best && artistFallback) {
+      const fbKey = `deezer:a:${artistKey}`;
+      const fbData = await httpGet<DeezerSearchResp>(
+        `https://api.deezer.com/search?q=${encodeURIComponent(artist)}&limit=20`,
+        { cacheKey: fbKey, cacheTtlMs: SEARCH_TTL_MS },
+      );
+      const candidates = (fbData.data ?? []).filter((t) => t.preview);
+      // Prefer a track by this artist (not a featuring credit on someone else's track)
+      best =
+        candidates.find((t) => t.artist?.name?.toLowerCase() === artistKey) ??
+        candidates[0] ??
+        null;
+      if (best) logger.debug({ artist, title, fallbackTitle: best.title }, "Deezer: using artist-fallback preview");
+    }
+
     if (!best) return { deezerId: null, previewUrl: null };
 
     // If the cached preview URL token has expired, bust both cache entries and re-fetch

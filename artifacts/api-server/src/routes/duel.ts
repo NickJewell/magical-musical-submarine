@@ -14,12 +14,15 @@ import { fetchDeezerData } from "../lib/links";
 
 const router: IRouter = Router();
 
-// GET /api/deezer-preview?title=&artist=
+// GET /api/deezer-preview?title=&artist=[&artistFallback=1]
+// artistFallback=1: when the exact title has no Deezer entry, fall back to any
+// preview from the same artist — used by the Discover card for a taste preview.
 router.get("/deezer-preview", async (req, res): Promise<void> => {
-  const title  = String(req.query.title  ?? "").trim();
-  const artist = String(req.query.artist ?? "").trim();
+  const title          = String(req.query.title  ?? "").trim();
+  const artist         = String(req.query.artist ?? "").trim();
+  const artistFallback = req.query.artistFallback === "1";
   if (!title || !artist) { res.status(400).json({ error: "title and artist required" }); return; }
-  const result = await fetchDeezerData(artist, title);
+  const result = await fetchDeezerData(artist, title, { artistFallback });
   res.json(result); // { deezerId, previewUrl }
 });
 

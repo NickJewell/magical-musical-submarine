@@ -32,6 +32,8 @@ export function DiscoverCard({ userId }: { userId: number }) {
   const [noteOpen, setNoteOpen]       = useState(false);
   const [info, setInfo]               = useState<InfoState | null>(null);
   const [infoLoading, setInfoLoading] = useState(false);
+  // undefined = not yet fetched, null = no preview available, string = ready URL
+  const [previewUrl, setPreviewUrl]   = useState<string | null | undefined>(undefined);
   const servedRef = useRef<string[]>([]);
 
   const fetchArtwork = useCallback(async (artist: string, title: string) => {
@@ -41,6 +43,17 @@ export function DiscoverCard({ userId }: { userId: number }) {
       const d = await r.json() as { artworkUrl: string | null };
       if (d.artworkUrl) setArtwork(d.artworkUrl);
     } catch { /* non-critical */ }
+  }, []);
+
+  const fetchPreview = useCallback(async (artist: string, title: string) => {
+    setPreviewUrl(undefined); // loading
+    try {
+      const params = new URLSearchParams({ artist, title, artistFallback: '1' });
+      const r = await fetch(`${basePath}/api/deezer-preview?${params}`);
+      if (!r.ok) { setPreviewUrl(null); return; }
+      const d = await r.json() as { previewUrl: string | null };
+      setPreviewUrl(d.previewUrl ?? null);
+    } catch { setPreviewUrl(null); }
   }, []);
 
   const fetchInfo = useCallback(async (artist: string, title: string) => {
@@ -60,6 +73,7 @@ export function DiscoverCard({ userId }: { userId: number }) {
     setLoading(true);
     setArtwork(null);
     setInfo(null);
+    setPreviewUrl(undefined);
     setNote('');
     setNoteOpen(false);
     try {
@@ -76,6 +90,7 @@ export function DiscoverCard({ userId }: { userId: number }) {
         setEmpty(false);
         if (d.track.artworkUrl) setArtwork(d.track.artworkUrl);
         else fetchArtwork(d.track.artist, d.track.title);
+        fetchPreview(d.track.artist, d.track.title);
         fetchInfo(d.track.artist, d.track.title);
       }
     } catch {
@@ -160,7 +175,9 @@ export function DiscoverCard({ userId }: { userId: number }) {
 
             {/* Preview + Spotify */}
             <div className="flex items-center gap-2">
-              <TrackPreviewPill key={track.mbid} title={track.title} artist={track.artist} />
+              {typeof previewUrl === 'string' && (
+                <TrackPreviewPill key={track.mbid} title={track.title} artist={track.artist} previewUrl={previewUrl} />
+              )}
               <a
                 href={`https://open.spotify.com/search/${encodeURIComponent(`${track.title} ${track.artist}`)}/tracks`}
                 target="_blank" rel="noopener noreferrer"

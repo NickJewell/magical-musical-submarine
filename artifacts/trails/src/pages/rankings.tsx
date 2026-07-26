@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useLocalUser } from '@/lib/useLocalUser';
 import {
-  Loader2, Star, Trophy, ArrowUp, ArrowDown, Swords, Radio,
+  Loader2, Star, Trophy, ArrowUp, ArrowDown, Swords, Radio, Trash2,
 } from 'lucide-react';
 import { TrackPreviewPill } from '@/components/TrackPreviewPill';
 import { DiveFromTrackButton } from '@/components/DiveFromTrackButton';
@@ -124,15 +124,18 @@ function EloBadge({ elo }: { elo: Elo }) {
 // ---- Row ----
 
 function RankRow({
-  track, rank, userId, onRated,
+  track, rank, userId, onRated, onRemoved,
 }: {
   track: RankTrack;
   rank: number;
   userId: number;
   onRated: (mbid: string, score: number) => void;
+  onRemoved: (mbid: string) => void;
 }) {
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState(false);
+  const [saving, setSaving]         = useState(false);
+  const [error, setError]           = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [deleting, setDeleting]     = useState(false);
 
   const handlePick = async (s: number) => {
     setSaving(true);
@@ -149,6 +152,20 @@ function RankRow({
       setError(true);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleRemove = async () => {
+    setDeleting(true);
+    try {
+      await fetch(
+        `${basePath}/api/rankings/track?${new URLSearchParams({ userId: String(userId), mbid: track.mbid })}`,
+        { method: 'DELETE' },
+      );
+      onRemoved(track.mbid);
+    } catch {
+      setDeleting(false);
+      setConfirming(false);
     }
   };
 
@@ -186,25 +203,57 @@ function RankRow({
           </div>
         </div>
 
-        {/* Dive from this track */}
-        <DiveFromTrackButton
-          variant="compact"
-          mbid={track.mbid}
-          title={track.title}
-          artist={track.artist}
-          className="shrink-0"
-        />
+        {/* Confirmation / actions */}
+        {confirming ? (
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="text-[10px] font-mono text-muted-foreground/70 uppercase tracking-wide">Remove?</span>
+            <button
+              onClick={handleRemove}
+              disabled={deleting}
+              className="text-[10px] font-mono text-destructive hover:text-destructive/80 uppercase tracking-wide disabled:opacity-50"
+            >
+              {deleting ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Yes'}
+            </button>
+            <button
+              onClick={() => setConfirming(false)}
+              disabled={deleting}
+              className="text-[10px] font-mono text-muted-foreground/50 hover:text-muted-foreground uppercase tracking-wide disabled:opacity-50"
+            >
+              No
+            </button>
+          </div>
+        ) : (
+          <>
+            {/* Dive from this track */}
+            <DiveFromTrackButton
+              variant="compact"
+              mbid={track.mbid}
+              title={track.title}
+              artist={track.artist}
+              className="shrink-0"
+            />
 
-        {/* Stars */}
-        <div className="shrink-0">
-          <StarPicker score={track.stars} onPick={handlePick} saving={saving} />
-          {error && <p className="text-[9px] text-destructive mt-0.5">retry</p>}
-        </div>
+            {/* Stars */}
+            <div className="shrink-0">
+              <StarPicker score={track.stars} onPick={handlePick} saving={saving} />
+              {error && <p className="text-[9px] text-destructive mt-0.5">retry</p>}
+            </div>
 
-        {/* ELO */}
-        <div className="shrink-0 w-14">
-          <EloBadge elo={track.elo} />
-        </div>
+            {/* ELO */}
+            <div className="shrink-0 w-14">
+              <EloBadge elo={track.elo} />
+            </div>
+
+            {/* Delete */}
+            <button
+              onClick={() => setConfirming(true)}
+              className="shrink-0 p-1 text-muted-foreground/30 hover:text-destructive/70 transition-colors"
+              title="Remove from rankings"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </>
+        )}
       </div>
     </div>
   );
@@ -248,6 +297,8 @@ function RankingsContent({ userId }: { userId: number }) {
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   // Local overrides for stars the user adjusts, so the table updates without a refetch.
   const [starOverrides, setStarOverrides] = useState<Record<string, number>>({});
+  // Tracks removed locally so the row disappears instantly without a refetch.
+  const [removedMbids, setRemovedMbids] = useState<Set<string>>(new Set());
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['rankings', userId],
@@ -256,6 +307,10 @@ function RankingsContent({ userId }: { userId: number }) {
 
   const handleRated = useCallback((mbid: string, score: number) => {
     setStarOverrides((prev) => ({ ...prev, [mbid]: score }));
+  }, []);
+
+  const handleRemoved = useCallback((mbid: string) => {
+    setRemovedMbids((prev) => new Set([...prev, mbid]));
   }, []);
 
   const toggleSort = (key: SortKey) => {
@@ -268,9 +323,9 @@ function RankingsContent({ userId }: { userId: number }) {
   };
 
   const tracks = useMemo(() => {
-    const list = (data ?? []).map((t) =>
-      t.mbid in starOverrides ? { ...t, stars: starOverrides[t.mbid] } : t,
-    );
+    const list = (data ?? [])
+      .filter((t) => !removedMbids.has(t.mbid))
+      .map((t) => t.mbid in starOverrides ? { ...t, stars: starOverrides[t.mbid] } : t);
     const dirMul = sortDir === 'desc' ? -1 : 1;
     const cmp = (a: RankTrack, b: RankTrack): number => {
       switch (sortKey) {
@@ -361,6 +416,7 @@ function RankingsContent({ userId }: { userId: number }) {
             rank={i + 1}
             userId={userId}
             onRated={handleRated}
+            onRemoved={handleRemoved}
           />
         ))}
         <div className="h-4" />

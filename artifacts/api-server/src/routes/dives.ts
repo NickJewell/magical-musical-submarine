@@ -9,7 +9,7 @@ import {
   GetRecommendationsBody,
   LoadRecapQueryParams,
 } from "@workspace/api-zod";
-import { directions } from "../lib/directions";
+import { directions, spark, type SparkSource } from "../lib/directions";
 import { recommend } from "../lib/recommend";
 
 const router: IRouter = Router();
@@ -314,6 +314,47 @@ router.post("/directions", async (req, res): Promise<void> => {
   }
 
   const result = await directions({ userId, diveId, focus: focus ?? null });
+  res.json(result);
+});
+
+// POST /directions/spark — directions for a dive sparked from a track or a
+// section (blends the nugget with the user's taste graph). Not part of the
+// OpenAPI surface; validated inline.
+router.post("/directions/spark", async (req, res): Promise<void> => {
+  const body = req.body as {
+    userId?: unknown; diveId?: unknown; source?: unknown;
+  };
+  const userId = Number(body.userId);
+  const diveId = Number(body.diveId);
+  if (!userId || !diveId) { res.status(400).json({ error: "userId and diveId required" }); return; }
+
+  const src = body.source as SparkSource | undefined;
+  const validSource =
+    src && src.type === "track" && typeof src.title === "string" && typeof src.artist === "string"
+      ? { type: "track" as const, mbid: typeof (src as { mbid?: unknown }).mbid === "string" ? (src as { mbid?: string }).mbid : null, title: src.title, artist: src.artist }
+      : src && src.type === "session" && typeof src.label === "string" && Array.isArray(src.tracks)
+        ? {
+            type: "session" as const,
+            label: src.label,
+            tracks: src.tracks
+              .filter((t): t is { title: string; artist: string } =>
+                !!t && typeof t.title === "string" && typeof t.artist === "string")
+              .slice(0, 8),
+            notes: typeof src.notes === "string" ? src.notes : null,
+          }
+        : null;
+
+  if (!validSource || (validSource.type === "session" && validSource.tracks.length === 0)) {
+    res.status(400).json({ error: "A valid track or session source is required" });
+    return;
+  }
+
+  // Ownership check
+  const [sparkDive] = await db.select().from(divesTable).where(eq(divesTable.id, diveId)).limit(1);
+  if (!sparkDive) { res.status(404).json({ error: "Dive not found" }); return; }
+  if (sparkDive.userId !== userId) { res.status(403).json({ error: "Access denied" }); return; }
+
+  const result = await spark({ userId, source: validSource });
   res.json(result);
 });
 

@@ -7,10 +7,26 @@ import {
 } from '@workspace/api-client-react';
 import { useLocalUser } from '@/lib/useLocalUser';
 import { Button } from '@/components/ui/button';
-import { Loader2, ArrowRight, Compass, X, Star, RefreshCw } from 'lucide-react';
+import { Loader2, ArrowRight, Compass, X, Star, RefreshCw, Sparkles } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { PairwiseSlider } from '@/components/PairwiseSlider';
 import { FocusPicker } from '@/components/FocusPicker';
+import { peekSparkSource, clearSparkSource, type SparkSource } from '@/lib/useSparkDive';
+
+const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
+
+/** Fetch directions for a spark dive (track/section) — blends the nugget with taste. */
+async function fetchSparkDirections(
+  userId: number, diveId: number, source: SparkSource,
+): Promise<DirectionsResponse> {
+  const r = await fetch(`${basePath}/api/directions/spark`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId, diveId, source }),
+  });
+  if (!r.ok) throw new Error('Failed to generate spark directions');
+  return r.json();
+}
 
 export default function DivePage() {
   const { id: diveIdStr } = useParams();
@@ -42,6 +58,17 @@ function DiveContent({ userId, diveId, onNavigate }: { userId: number, diveId: n
   // three paths from that selection alone instead of the user's portrait.
   const [focus, setFocus] = useState<Focus | null>(null);
   const [showFocus, setShowFocus] = useState(false);
+
+  // Spark dive: started from a track or a dive section the user found. Read +
+  // consumed once from sessionStorage (stashed by useSparkDive before nav).
+  const [spark] = useState<SparkSource | null>(() => peekSparkSource(diveId));
+  // The focus we persist on the chosen step so the recommend pipeline anchors
+  // correctly: a track spark → that track; a section spark → its category tag.
+  const sparkFocus: Focus | null = spark
+    ? spark.type === 'track'
+      ? { kind: 'track', label: spark.title, artist: spark.artist, mbid: spark.mbid ?? null }
+      : { kind: 'subgenre', label: spark.label }
+    : null;
 
   const getDirections = useGetDirections();
   const chooseStep = useChooseStep();
@@ -91,20 +118,49 @@ function DiveContent({ userId, diveId, onNavigate }: { userId: number, diveId: n
   };
   const runDirections = (focusArg: Focus | null) => runDirectionsRef.current(focusArg);
 
-  // Auto-load the initial (taste-based) directions exactly once when the dive
-  // arrives. Guarded by a ref so nothing re-triggers it — picking a focus goes
-  // through runDirections() explicitly and must not be clobbered by a re-fire.
+  // Spark run — same request-id gating, but hits the spark endpoint with the
+  // track/section the dive was sparked from.
+  const runSparkRef = useRef<() => void>(() => {});
+  runSparkRef.current = () => {
+    if (!spark) return;
+    const reqId = ++reqIdRef.current;
+    setDirectionsFailed(false);
+    setDirectionsLoading(true);
+    fetchSparkDirections(userId, diveId, spark)
+      .then((data) => {
+        if (reqId !== reqIdRef.current) return;
+        setDirs(data);
+        setDirectionsLoading(false);
+      })
+      .catch(() => {
+        if (reqId !== reqIdRef.current) return;
+        setDirectionsFailed(true);
+        setDirectionsLoading(false);
+      });
+  };
+
+  // Auto-load directions exactly once when the dive arrives — from the spark if
+  // the dive was sparked from a track/section, otherwise taste-based. Guarded by
+  // a ref so nothing re-triggers it.
   const initiatedRef = useRef(false);
   useEffect(() => {
     if (dive && !initiatedRef.current) {
       initiatedRef.current = true;
-      runDirectionsRef.current(null);
+      if (spark) {
+        runSparkRef.current();
+        clearSparkSource(diveId); // consumed — a later revisit loads normally
+      } else {
+        runDirectionsRef.current(null);
+      }
     }
   }, [dive]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Regenerate honours the active mode (spark / focus / taste).
+  const regenerate = () => (spark ? runSparkRef.current() : runDirections(focus));
+
   const handleRetryDirections = () => {
-    // Retry preserves the current focus (taste-based when null).
-    runDirections(focus);
+    // Retry preserves the active mode (spark / focus / taste).
+    regenerate();
   };
 
   const handlePickFocus = (f: Focus) => {
@@ -125,6 +181,7 @@ function DiveContent({ userId, diveId, onNavigate }: { userId: number, diveId: n
 
   const handleChoose = (label: string) => {
     if (!dirs) return;
+    const effectiveFocus = focus ?? sparkFocus;
     chooseStep.mutate(
       {
         data: {
@@ -132,7 +189,7 @@ function DiveContent({ userId, diveId, onNavigate }: { userId: number, diveId: n
           diveId,
           chosenDirection: label,
           hypothesisText: dirs.hypothesis,
-          directionsJson: { ...dirs, ...(focus ? { focus } : {}) }
+          directionsJson: { ...dirs, ...(effectiveFocus ? { focus: effectiveFocus } : {}) }
         }
       },
       {
@@ -188,7 +245,22 @@ function DiveContent({ userId, diveId, onNavigate }: { userId: number, diveId: n
 
       {/* Focused dive: start the three paths from a specific selection */}
       <div>
-        {focus ? (
+        {spark ? (
+          <div className="flex items-center gap-3 p-3 rounded-xl bg-primary/10 border border-primary/25">
+            <Sparkles className="w-4 h-4 text-primary shrink-0" />
+            <div className="min-w-0">
+              <p className="text-[10px] font-mono text-primary/70 uppercase tracking-widest">
+                {spark.type === 'track' ? 'Diving from a track' : 'Diving deeper into'}
+              </p>
+              <p className="text-sm text-primary-foreground truncate">
+                {spark.type === 'track' ? spark.title : spark.label}
+                {spark.type === 'track' && spark.artist
+                  ? <span className="text-muted-foreground/60"> · {spark.artist}</span>
+                  : null}
+              </p>
+            </div>
+          </div>
+        ) : focus ? (
           <div className="space-y-3">
             <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-primary/10 border border-primary/25">
               <div className="min-w-0">
@@ -298,7 +370,7 @@ function DiveContent({ userId, diveId, onNavigate }: { userId: number, diveId: n
 
           <div className="pt-2 text-center">
             <button
-              onClick={() => runDirections(focus)}
+              onClick={regenerate}
               disabled={chooseStep.isPending}
               className="flex items-center gap-1.5 mx-auto text-xs text-muted-foreground/50 hover:text-muted-foreground/80 transition-colors"
             >

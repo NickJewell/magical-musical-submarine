@@ -309,6 +309,130 @@ Generate 3 named themed directions (contrastive) and the well-trodden direction.
   }
 }
 
+// ---- Spark directions (dive from a track, or deeper into a section) ----
+
+const DIRECTIONS_SCHEMA = {
+  type: "object",
+  properties: {
+    hypothesis: { type: "string" },
+    directions: {
+      type: "array",
+      minItems: 3,
+      maxItems: 3,
+      items: {
+        type: "object",
+        properties: {
+          label: { type: "string" },
+          rationale: { type: "string" },
+        },
+        required: ["label", "rationale"],
+      },
+    },
+    well_trodden_label: { type: "string" },
+    well_trodden_rationale: { type: "string" },
+  },
+  required: ["hypothesis", "directions", "well_trodden_label", "well_trodden_rationale"],
+} as const;
+
+/**
+ * Generate directions for a "spark" dive — one started from a nugget the user
+ * found rather than from their portrait alone. Two modes:
+ * - track:   radiate from one track's personality, honouring the taste graph.
+ * - session: take a section's three tracks + notes and explore DIFFERENT
+ *            aspects of them to find something genuinely new.
+ * Both blend the listener's taste (portrait + rankings) with the spark, so the
+ * paths feel like "more me, but somewhere new".
+ */
+export async function sparkDirections(opts: {
+  mode: "track" | "session";
+  portraitText: string;
+  eloTop?: string[];
+  similarArtists: string[];
+  track?: { title: string; artist: string };
+  session?: { label: string; tracks: Array<{ title: string; artist: string }>; notes?: string | null };
+}): Promise<DirectionsResult> {
+  const { mode, portraitText, eloTop = [], similarArtists, track, session } = opts;
+  const wellTroddenList = similarArtists.slice(0, 10).join(", ");
+  const wellTroddenTop = similarArtists[0] ?? "a popular similar artist";
+  const eloLine = eloTop.length > 0
+    ? `\n\nThe centre of their taste, by head-to-head ranking (let the strongest path honour this gravity, and one path knowingly pull against it):\n${eloTop.map((t) => `- ${t}`).join("\n")}`
+    : "";
+
+  let systemPrompt: string;
+  let userPrompt: string;
+
+  if (mode === "session" && session) {
+    const trackList = session.tracks.map((t) => `"${t.title}" by ${t.artist}`).join(", ");
+    systemPrompt = `You are a music taste analyst and genre cartographer. The user just explored a themed leg of a dive and wants to go DEEPER — not a rerun, but a new expedition that pulls apart what made these particular tracks work and chases the threads somewhere fresh.
+
+CRITICAL RULES:
+- Output ONLY valid JSON matching the schema.
+- Ground everything in the three tracks below and the listener's own notes on them — find the specific quality they responded to (a texture, a tension, a lineage) and open three CONTRASTIVE new paths from it: e.g. one that deepens the thread, one that twists it sideways into an adjacent scene, one that pushes it somewhere bolder.
+- Do NOT just re-recommend the same neighbourhood — the point is to find something genuinely new that these three songs point toward.
+- Blend in who they are (taste portrait below) so the paths feel like them, stretched.
+- Each direction: a vivid label (3-5 words) + a 1-sentence rationale naming the thread it follows and how it diverges.
+- The well_trodden direction is the single obvious closely-associated artist.`;
+    userPrompt = `The section they explored: "${session.label}"
+The three tracks: ${trackList}
+${session.notes ? `\nWhat we noticed about this leg (their track notes):\n${session.notes}\n` : ""}
+Their taste portrait:
+${portraitText}
+
+Closely associated artists (the obvious neighbourhood to push past): ${wellTroddenList || "(none found)"}${eloLine}
+
+Explore DIFFERENT aspects of these three tracks and chart 3 contrastive new directions plus the well-trodden pick.`;
+  } else {
+    const t = track ?? { title: "this track", artist: "" };
+    systemPrompt = `You are a music taste analyst and genre cartographer. The user found a single track they're drawn to and wants to start a new dive from it — powered by BOTH the track's own personality and everything you know about their taste.
+
+CRITICAL RULES:
+- Output ONLY valid JSON matching the schema.
+- Anchor on the track's character — its sound, lineage, the scenes it belongs to, the tensions inside it — and chart three CONTRASTIVE paths outward: e.g. one into its roots, one into a sideways-adjacent scene, one into a bolder reinterpretation or descendant.
+- Blend with the listener's taste portrait (below): the paths should feel like this specific person exploring from this specific track, not a generic map.
+- Each direction: a vivid label (3-5 words) + a 1-sentence rationale naming what connects it to the track AND how it diverges.
+- The hypothesis is a sharp read on what makes this track tick for THIS listener and where the interesting exits are.
+- The well_trodden direction is the single obvious closely-associated artist.`;
+    userPrompt = `The track: "${t.title}"${t.artist ? ` by ${t.artist}` : ""}
+
+Their taste portrait:
+${portraitText}
+
+Closely associated artists (the obvious neighbourhood to push past): ${wellTroddenList || "(none found)"}
+Nearest obvious pick: ${wellTroddenTop}${eloLine}
+
+Chart 3 contrastive directions that radiate from this track while honouring their taste, plus the well-trodden pick.`;
+  }
+
+  const raw = await chat(PROPOSE_MODEL, [
+    { role: "system", content: systemPrompt },
+    { role: "user", content: userPrompt },
+  ], {
+    type: "json_schema",
+    json_schema: { name: "directions", schema: DIRECTIONS_SCHEMA, strict: true },
+  });
+
+  try {
+    const parsed = JSON.parse(raw) as {
+      hypothesis: string;
+      directions: Array<{ label: string; rationale: string }>;
+      well_trodden_label: string;
+      well_trodden_rationale: string;
+    };
+    return {
+      hypothesis: parsed.hypothesis,
+      directions: parsed.directions.map((d) => ({ label: d.label, rationale: d.rationale, isWellTrodden: false })),
+      wellTroddenDirection: {
+        label: parsed.well_trodden_label,
+        rationale: parsed.well_trodden_rationale,
+        isWellTrodden: true,
+      },
+    };
+  } catch (err) {
+    logger.error({ err, raw }, "Failed to parse spark directions response");
+    throw new Error("Failed to generate directions");
+  }
+}
+
 // ---- Generate portrait ----
 
 export async function generatePortrait(opts: {

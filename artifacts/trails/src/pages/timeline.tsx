@@ -8,9 +8,11 @@ import {
 } from '@/components/ui/dialog';
 import {
   Loader2, ChevronDown, ChevronUp, Star, ExternalLink,
-  Music, Radio, Check, Trash2, RefreshCw, NotebookPen, ArrowRight,
+  Music, Radio, Check, Trash2, RefreshCw, NotebookPen, Compass,
 } from 'lucide-react';
 import { InlinePlayer, type ResolvedLinks } from '@/components/InlinePlayer';
+import { DiveFromTrackButton } from '@/components/DiveFromTrackButton';
+import { useSparkDive } from '@/lib/useSparkDive';
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
 
@@ -377,9 +379,13 @@ function PathCard({
         </button>
       </div>
 
-      {/* Song list */}
+      {/* Expanded body */}
       {expanded && (
         <div className="border-t border-border/20 py-2">
+          {/* Track notes — directly under the title; they cover the whole section */}
+          <TrackNotes path={path} userId={userId} onGenerated={onTastingNote} />
+
+          {/* Song list */}
           {path.songs.length === 0 && (
             <p className="text-xs text-muted-foreground px-4 py-2 italic">No tracks yet</p>
           )}
@@ -387,22 +393,48 @@ function PathCard({
             <SongRow key={s.recId} song={s} onOpen={onOpenSong} />
           ))}
 
-          {/* Track notes */}
-          <TrackNotes path={path} userId={userId} onGenerated={onTastingNote} />
-
           {/* Footer actions */}
           <div className="flex items-center justify-between gap-3 px-3 pt-2 pb-1">
             <SpotifyExportButton userId={userId} diveStepId={path.diveStepId} spotify={spotify} />
-            <a
-              href={`${basePath}/dive/${path.diveId}`}
-              className="flex items-center gap-1 text-[10px] font-mono text-muted-foreground/60 hover:text-primary transition-colors uppercase tracking-wide shrink-0"
-            >
-              Continue diving <ArrowRight className="w-3 h-3" />
-            </a>
           </div>
+
+          {/* Dive deeper into this category — a fresh expedition from these songs + notes */}
+          {path.songs.length > 0 && (
+            <div className="px-3 pt-1">
+              <DiveIntoCategoryButton path={path} />
+            </div>
+          )}
         </div>
       )}
     </div>
+  );
+}
+
+// ---- Dive deeper into a section's category ----
+
+function DiveIntoCategoryButton({ path }: { path: DivePath }) {
+  const { start, isPending } = useSparkDive();
+  const handleClick = () => {
+    if (isPending) return;
+    start(
+      {
+        type: 'session',
+        label: path.title,
+        tracks: path.songs.map((s) => ({ title: s.title, artist: s.artist })),
+        notes: path.tastingNote,
+      },
+      path.title,
+    );
+  };
+  return (
+    <button
+      onClick={handleClick}
+      disabled={isPending}
+      className="w-full flex items-center justify-center gap-2 h-10 rounded-full border border-primary/25 text-primary/90 text-xs font-medium hover:bg-primary/10 transition-colors disabled:opacity-50"
+    >
+      {isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Compass className="w-3.5 h-3.5" />}
+      Dive deeper into "{path.title}"
+    </button>
   );
 }
 
@@ -661,6 +693,9 @@ function SongDetail({
             )}
           </div>
         )}
+
+        {/* ── Start a new dive from this track ── */}
+        <DiveFromTrackButton mbid={song.mbid} title={song.title} artist={song.artist} />
       </DialogContent>
     </Dialog>
   );

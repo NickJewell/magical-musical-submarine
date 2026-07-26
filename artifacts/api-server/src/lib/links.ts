@@ -179,9 +179,15 @@ async function fetchItunesData(
       },
     );
     const result = data.results?.[0];
+    if (!result) {
+      // Don't persist an empty result — bust the cache so the next caller
+      // retries against the live API rather than reading a stale null for 30 days.
+      bustCacheEntry(`itunes:${artist.toLowerCase()}:${title.toLowerCase()}`).catch(() => null);
+      return { artworkUrl: null, trackViewUrl: null };
+    }
     return {
-      artworkUrl:   result?.artworkUrl100?.replace(/\d+x\d+bb/, "500x500bb") ?? null,
-      trackViewUrl: result?.trackViewUrl ?? null,
+      artworkUrl:   result.artworkUrl100?.replace(/\d+x\d+bb/, "500x500bb") ?? null,
+      trackViewUrl: result.trackViewUrl ?? null,
     };
   } catch {
     return { artworkUrl: null, trackViewUrl: null };

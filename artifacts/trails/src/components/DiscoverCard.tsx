@@ -11,10 +11,8 @@ interface DiscoverTrack {
   title: string;
   artist: string;
   year: number | null;
-}
-
-interface DiscoverResponse {
-  track?: DiscoverTrack;
+  spotifyId: string | null;
+  artworkUrl: string | null;
 }
 
 /**
@@ -22,8 +20,9 @@ interface DiscoverResponse {
  * track from what the user already ranks highest; a star (or skip) records it
  * and immediately serves the next — the fastest way to grow the rankings table.
  *
- * Artwork is fetched lazily via /api/discover/artwork so it never blocks the
- * initial render.  The letter placeholder shows until artwork resolves.
+ * Pool tracks arrive with Spotify artwork + id; CF tracks fetch artwork lazily
+ * via /discover/artwork. Info bubbles (artist bio + track blurb from Last.fm)
+ * load eagerly after each track and appear below the preview pill.
  */
 export function DiscoverCard({ userId }: { userId: number }) {
   const [track, setTrack]             = useState<DiscoverTrack | null>(null);
@@ -35,21 +34,35 @@ export function DiscoverCard({ userId }: { userId: number }) {
   const [hoveredStar, setHoveredStar] = useState<number | null>(null);
   const [note, setNote]               = useState('');
   const [noteOpen, setNoteOpen]       = useState(false);
+  const [info, setInfo]               = useState<{ artist: string | null; track: string | null } | null>(null);
+  const [infoLoading, setInfoLoading] = useState(false);
   const servedRef = useRef<string[]>([]);
 
   const fetchArtwork = useCallback(async (artist: string, title: string) => {
     try {
-      const params = new URLSearchParams({ artist, title });
-      const r = await fetch(`${basePath}/api/discover/artwork?${params}`);
+      const r = await fetch(`${basePath}/api/discover/artwork?${new URLSearchParams({ artist, title })}`);
       if (!r.ok) return;
       const d = await r.json() as { artworkUrl: string | null };
       if (d.artworkUrl) setArtwork(d.artworkUrl);
     } catch { /* non-critical */ }
   }, []);
 
+  const fetchInfo = useCallback(async (artist: string, title: string) => {
+    setInfoLoading(true);
+    try {
+      const r = await fetch(`${basePath}/api/discover/info?${new URLSearchParams({ artist, title })}`);
+      setInfo(r.ok ? await r.json() : { artist: null, track: null });
+    } catch {
+      setInfo({ artist: null, track: null });
+    } finally {
+      setInfoLoading(false);
+    }
+  }, []);
+
   const loadNext = useCallback(async () => {
     setLoading(true);
     setArtwork(null);
+    setInfo(null);
     setNote('');
     setNoteOpen(false);
     try {
@@ -58,21 +71,24 @@ export function DiscoverCard({ userId }: { userId: number }) {
         exclude: servedRef.current.slice(-40).join(','),
       });
       const r = await fetch(`${basePath}/api/discover/track?${params}`);
-      const d: DiscoverResponse = await r.json();
+      const d = await r.json() as { track: DiscoverTrack | null };
       if (!d.track) { setTrack(null); setEmpty(true); }
       else {
         setTrack(d.track);
         servedRef.current.push(`${d.track.title}|${d.track.artist}`.toLowerCase());
         setEmpty(false);
-        // Artwork is non-blocking — fire after track is set
-        fetchArtwork(d.track.artist, d.track.title);
+        // Pool tracks already carry artwork; CF tracks need a lazy fetch
+        if (d.track.artworkUrl) setArtwork(d.track.artworkUrl);
+        else fetchArtwork(d.track.artist, d.track.title);
+        // Eagerly load info blurbs so they're ready when the user sees the card
+        fetchInfo(d.track.artist, d.track.title);
       }
     } catch {
       setEmpty(true);
     } finally {
       setLoading(false);
     }
-  }, [userId, fetchArtwork]);
+  }, [userId, fetchArtwork, fetchInfo]);
 
   useEffect(() => { loadNext(); }, [loadNext]);
 
@@ -131,7 +147,7 @@ export function DiscoverCard({ userId }: { userId: number }) {
         </div>
       ) : (
         <>
-          {/* Track info */}
+          {/* Track info + thumbnail */}
           <div className="flex items-center gap-3">
             <div className="w-14 h-14 rounded-xl bg-secondary/50 border border-primary/10 overflow-hidden relative flex items-center justify-center shrink-0">
               <span className="text-lg font-mono font-bold text-primary/20 absolute">
@@ -145,13 +161,11 @@ export function DiscoverCard({ userId }: { userId: number }) {
             <div className="min-w-0 flex-1">
               <p className="text-base font-medium text-foreground truncate leading-snug">{track.title}</p>
               <p className="text-sm text-muted-foreground truncate">{track.artist}</p>
-              {track.year && (
-                <p className="text-xs text-muted-foreground/50">{track.year}</p>
-              )}
+              {track.year && <p className="text-xs text-muted-foreground/50">{track.year}</p>}
             </div>
           </div>
 
-          {/* Preview pill + Spotify link */}
+          {/* Preview pill + Spotify jump-out */}
           <div className="flex items-center gap-2">
             <TrackPreviewPill key={track.mbid} title={track.title} artist={track.artist} />
             <a
@@ -164,6 +178,14 @@ export function DiscoverCard({ userId }: { userId: number }) {
               <SiSpotify className="w-3.5 h-3.5 text-[#1DB954]" />
             </a>
           </div>
+
+          {/* Info bubbles — artist bio + track blurb, load eagerly after track arrives */}
+          {(infoLoading || (info && (info.artist || info.track))) && (
+            <div className="grid grid-cols-2 gap-2 animate-in fade-in slide-in-from-top-1 duration-300">
+              <InfoBubble label="Artist" heading={track.artist} text={info?.artist ?? null} loading={infoLoading && !info} />
+              <InfoBubble label="Song"   heading={track.title}  text={info?.track  ?? null} loading={infoLoading && !info} />
+            </div>
+          )}
 
           {/* Notes */}
           {noteOpen ? (
@@ -221,6 +243,27 @@ export function DiscoverCard({ userId }: { userId: number }) {
             </button>
           </div>
         </>
+      )}
+    </div>
+  );
+}
+
+function InfoBubble({
+  label, heading, text, loading,
+}: { label: string; heading: string; text: string | null; loading: boolean }) {
+  return (
+    <div className="rounded-xl border border-border/30 bg-secondary/20 p-3">
+      <p className="text-[9px] font-mono text-primary/60 uppercase tracking-widest mb-1">{label}</p>
+      <p className="text-xs font-medium text-foreground/90 truncate mb-1.5">{heading}</p>
+      {loading ? (
+        <div className="flex items-center gap-1.5 text-muted-foreground/40">
+          <Loader2 className="w-3 h-3 animate-spin" />
+          <span className="text-[10px] font-mono uppercase tracking-wide">Reading up…</span>
+        </div>
+      ) : text ? (
+        <p className="text-[11px] leading-relaxed text-muted-foreground line-clamp-5">{text}</p>
+      ) : (
+        <p className="text-[11px] italic text-muted-foreground/40">No write-up found.</p>
       )}
     </div>
   );

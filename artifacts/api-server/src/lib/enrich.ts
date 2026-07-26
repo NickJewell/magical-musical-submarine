@@ -194,6 +194,7 @@ function cleanBlurb(raw: string | undefined | null): string | null {
     .replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;/g, "'")
     .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&nbsp;/g, " ")
     .replace(/\s*Read more on Last\.fm.*$/is, "")
+    .replace(/\s*User-contributed text is available under.*$/is, "")
     .replace(/\s+/g, " ")
     .trim();
   return text || null;

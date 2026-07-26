@@ -200,7 +200,7 @@ function HomeContent({ userId, onNavigate }: { userId: number; onNavigate: (path
   const activePair = showPairwise && !pairwiseDone && tastePair && !tastePair.done;
 
   return (
-    <div className="p-6 pt-10 max-w-md mx-auto min-h-screen animate-in fade-in duration-1000">
+    <div className="p-6 pt-10 max-w-md mx-auto min-h-screen animate-in fade-in duration-1000 overflow-x-hidden">
 
       {/* User bar */}
       <div className="flex items-center justify-between mb-6">

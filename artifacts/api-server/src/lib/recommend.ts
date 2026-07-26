@@ -8,7 +8,7 @@ import { db, seedsTable, portraitsTable, diveStepsTable, recommendationsTable, r
 import { eq, desc, and } from "drizzle-orm";
 import {
   enrichFromSeeds, enrichFromFocus, lastfmTopTrack,
-  lastfmSimilarArtists, lastfmTagTopArtists,
+  lastfmSimilarArtists, lastfmTagTopArtists, lastfmTagTopTracks,
   type EnrichResult, type SimilarArtist, type Focus,
 } from "./enrich";
 import { resolve, MB_REQUEST_TIMEOUT_MS } from "./musicbrainz";
@@ -21,13 +21,13 @@ const MAX_CANDIDATES = 7;
 const TARGET_RECS = 3;
 
 /** Max time to wait for the LLM propose step (ms). */
-const PROPOSE_BUDGET_MS = 25_000;
+const PROPOSE_BUDGET_MS = 40_000; // Kimi K2 via OpenRouter can easily take 30s under load
 /**
  * Guaranteed time budget for the MusicBrainz resolve loop (ms), measured from
  * when propose() returns — not from the start of the whole pipeline. This means
  * a slow LLM response can't silently starve the resolver of its entire budget.
  */
-const RESOLVE_BUDGET_MS = 20_000;
+const RESOLVE_BUDGET_MS = 30_000; // cold MB cache needs ~8s/call; 30s covers 3-4 candidates
 
 export async function recommend(opts: { stepId: number; userId: number }) {
   const { stepId, userId } = opts;
@@ -170,6 +170,13 @@ export async function recommend(opts: { stepId: number; userId: number }) {
       return [];
     }
 
+    // Log what the LLM proposed so failures are diagnosable without relying on
+    // transient log snapshots (the MB-gate rejection is logged inside musicbrainz.ts).
+    logger.info(
+      { stepId, broader, proposed: candidates.map((c) => `${c.artist} — ${c.title}`) },
+      "Propose: raw LLM candidates before MB gate",
+    );
+
     // Resolve budget starts NOW (after propose returned), not at pipeline start.
     const resolveDeadline = Date.now() + RESOLVE_BUDGET_MS;
 
@@ -213,12 +220,13 @@ export async function recommend(opts: { stepId: number; userId: number }) {
     logger.warn({ stepId }, "No LLM candidates passed MusicBrainz gate on first round — retrying with broader prompt");
     verified = await runProposalRound(true);
     if (verified.length === 0) {
-      logger.warn({ stepId }, "No LLM candidates passed MusicBrainz gate after broader retry — step will have only control-arm rec");
+      logger.warn({ stepId }, "No LLM candidates passed MusicBrainz gate after broader retry — trying Last.fm tag fallback");
     } else {
       logger.info({ stepId, count: verified.length }, "Broader retry succeeded");
     }
   }
 
+  // Narrate and persist verified LLM recs (arm = "llm").
   if (verified.length > 0) {
     const narrated = await Promise.all(
       verified.map(async (v) => {
@@ -247,6 +255,76 @@ export async function recommend(opts: { stepId: number; userId: number }) {
       })
     );
     llmRecs.push(...narrated);
+  }
+
+  // ---- Last.fm tag fallback ----
+  // Both LLM rounds failed to produce any verified recs. Use the direction label
+  // as a Last.fm genre tag and pull top tracks from it — real, fan-verified picks
+  // that are guaranteed to exist in the Last.fm catalogue. We still gate each one
+  // through MusicBrainz so the MBID is real, but the pool is much more reliable
+  // than open-ended LLM hallucinations under time pressure.
+  if (llmRecs.length === 0) {
+    logger.info({ stepId, direction: directionLabel }, "Last.fm tag fallback: fetching top tracks for direction");
+    const tagTracks = await lastfmTagTopTracks(directionLabel).catch(() => []);
+    logger.info({ stepId, tagTrackCount: tagTracks.length }, "Last.fm tag fallback: pool size");
+
+    // Collect artists already used in this dive (across all steps) to avoid repeats.
+    const priorDiveRecs = await db
+      .select({ artist: recommendationsTable.artist })
+      .from(recommendationsTable)
+      .innerJoin(diveStepsTable, eq(recommendationsTable.diveStepId, diveStepsTable.id))
+      .where(eq(diveStepsTable.diveId, step.diveId))
+      .catch(() => []);
+    const usedFbArtists = new Set(priorDiveRecs.map((r) => r.artist.toLowerCase()));
+
+    const fallbackDeadline = Date.now() + 25_000; // 25s to verify up to TARGET_RECS - 1 fallback picks
+
+    for (const t of tagTracks) {
+      if (llmRecs.length >= TARGET_RECS - 1) break; // always leave room for the well_trodden arm
+      if (usedFbArtists.has(t.artist.toLowerCase())) continue;
+      if (Date.now() > fallbackDeadline) {
+        logger.warn({ stepId }, "Last.fm tag fallback: deadline exceeded");
+        break;
+      }
+
+      const remainingMs = fallbackDeadline - Date.now();
+      const resolved = await resolve(
+        { artist: t.artist, title: t.name, type: "track", likely_known: "medium" },
+        Math.min(MB_REQUEST_TIMEOUT_MS, remainingMs),
+      ).catch(() => null);
+      if (!resolved) continue;
+
+      const [narrative, links] = await Promise.all([
+        narrate({
+          portraitText,
+          rec: { title: resolved.title, artist: resolved.artist, year: resolved.year, relationships: resolved.relationships },
+          directionLabel,
+          priorRatings: priorRatingsFormatted,
+        }),
+        resolveLinks(resolved.mbid, "track", resolved.title, resolved.artist),
+      ]);
+
+      llmRecs.push({
+        diveStepId: stepId,
+        type: "track",
+        mbid: resolved.mbid,
+        title: resolved.title,
+        artist: resolved.artist,
+        year: resolved.year,
+        narrativeText: narrative,
+        linksJson: links,
+        artworkUrl: links.artworkUrl ?? null,
+        arm: "tag_fallback",
+        likelyKnown: "medium",
+      });
+      usedFbArtists.add(t.artist.toLowerCase());
+    }
+
+    if (llmRecs.length > 0) {
+      logger.info({ stepId, count: llmRecs.length, direction: directionLabel }, "Last.fm tag fallback produced recs");
+    } else {
+      logger.warn({ stepId }, "Last.fm tag fallback also produced nothing — step will have only control-arm rec");
+    }
   }
 
   // ---- Control arm: ALWAYS inserted regardless of LLM outcome ----

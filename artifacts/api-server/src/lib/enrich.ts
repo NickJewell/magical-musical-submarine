@@ -93,6 +93,27 @@ async function lastfmTopTags(artist: string): Promise<string[]> {
   }
 }
 
+/** Last.fm tag → top tracks. Used as a fallback when both LLM propose rounds fail. */
+export async function lastfmTagTopTracks(tag: string): Promise<Array<{ name: string; artist: string }>> {
+  if (!LASTFM_KEY) return [];
+  const url =
+    `${LASTFM_BASE}/?method=tag.gettoptracks&tag=${encodeURIComponent(tag)}` +
+    `&api_key=${LASTFM_KEY}&format=json&limit=30`;
+  try {
+    interface LFMTagTracksResp {
+      tracks?: { track?: Array<{ name: string; artist: { name: string } }> };
+    }
+    const data = await httpGet<LFMTagTracksResp>(url, {
+      cacheKey: `lfm:tagtracks:${tag.toLowerCase()}`,
+      cacheTtlMs: 7 * 24 * 60 * 60 * 1000,
+    });
+    return (data.tracks?.track ?? []).map((t) => ({ name: t.name, artist: t.artist.name }));
+  } catch (err) {
+    logger.warn({ err, tag }, "Last.fm tag.gettoptracks failed");
+    return [];
+  }
+}
+
 export async function lastfmTagTopArtists(tag: string): Promise<SimilarArtist[]> {
   if (!LASTFM_KEY) return [];
   const url =

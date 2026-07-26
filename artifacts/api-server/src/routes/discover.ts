@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db, seedsTable, discoverPoolTable } from "@workspace/db";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, notInArray } from "drizzle-orm";
 import { ensureUserTracksSeeded, getRankedTracks } from "../lib/elo";
 import { lastfmSimilarTracks, lastfmSimilarArtists, lastfmTopTrack } from "../lib/enrich";
 import { resolve } from "../lib/musicbrainz";
@@ -23,16 +23,28 @@ interface DiscoverTrack {
   artworkUrl: string | null;
 }
 
-/** Pick a random, not-yet-seen track from the persisted playlist pool. */
-async function tryPool(excluded: Set<string>): Promise<DiscoverTrack | null> {
+/**
+ * Pick a random pool track the user hasn't matched yet. A rated pool track lands
+ * in rankings under a `spotify:<id>` key, so we exclude exactly those at the SQL
+ * level — that keeps the pool in play (the 60/40 blend holds) until every last
+ * pool song has been matched, at which point this returns null and the feed goes
+ * CF-only. `matchedSpotifyIds` are the pool ids already in the user's rankings.
+ */
+async function tryPool(excluded: Set<string>, matchedSpotifyIds: string[]): Promise<DiscoverTrack | null> {
   // Guarded: the discover_pool table requires a drizzle-kit push; degrade to CF
   // (via the null return) if it isn't there yet.
   let sample: Array<typeof discoverPoolTable.$inferSelect>;
   try {
-    sample = await db.select().from(discoverPoolTable).orderBy(sql`random()`).limit(30);
+    const base = db.select().from(discoverPoolTable).$dynamic();
+    const filtered = matchedSpotifyIds.length > 0
+      ? base.where(notInArray(discoverPoolTable.spotifyId, matchedSpotifyIds))
+      : base;
+    sample = await filtered.orderBy(sql`random()`).limit(30);
   } catch {
     return null;
   }
+  // Second-pass JS filter for cross-source dupes (same title/artist rated via a
+  // different source) and the client's recently-served set.
   const pick = sample.find((t) => !excluded.has(key(t.title, t.artist)));
   if (!pick) return null;
   return {
@@ -138,11 +150,19 @@ router.get("/discover/track", async (req, res): Promise<void> => {
 
   const seedTracks = seeds.map((s) => ({ title: s.title, artist: s.artist }));
 
-  // Pool-favoured blend, with cross-fallback so the feed never stalls.
+  // Pool tracks the user has already matched land in rankings under `spotify:<id>`.
+  const matchedSpotifyIds = ranked
+    .map((t) => t.mbid)
+    .filter((m) => m.startsWith("spotify:"))
+    .map((m) => m.slice("spotify:".length));
+
+  // 60/40 pool-favoured while any pool song remains unmatched; once the pool is
+  // fully matched tryPool() returns null and the feed is CF-only. Cross-fallback
+  // keeps it flowing if either source comes up empty.
   const preferPool = Math.random() < 0.6;
   const track = preferPool
-    ? (await tryPool(excluded)) ?? (await tryCF(ranked, seedTracks, excluded))
-    : (await tryCF(ranked, seedTracks, excluded)) ?? (await tryPool(excluded));
+    ? (await tryPool(excluded, matchedSpotifyIds)) ?? (await tryCF(ranked, seedTracks, excluded))
+    : (await tryCF(ranked, seedTracks, excluded)) ?? (await tryPool(excluded, matchedSpotifyIds));
 
   res.json({ track: track ?? null });
 });

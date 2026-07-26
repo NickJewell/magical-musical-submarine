@@ -23,11 +23,25 @@ import {
   diveStepsTable,
   divesTable,
 } from "@workspace/db";
-import { eq, and, desc, sql } from "drizzle-orm";
+import { eq, and, desc, sql, inArray } from "drizzle-orm";
 import { logger } from "./logger";
 
 export const BASE_RATING = 1500;
 const K_BASE = 24;
+
+/**
+ * Starting ELO by star rating, so a newly-added track enters the rankings near
+ * where the user placed it rather than flat at the baseline:
+ *   3★ → 1500 (the baseline)   2★ → 1300   1★ → 1000
+ * Unstarred tracks (bare seeds, or ratings that only recorded a listen state)
+ * fall back to the baseline. Only the *starting* anchor is set from stars —
+ * once a track has been compared head-to-head, its earned rating stands.
+ */
+const STAR_RATING: Record<number, number> = { 3: 1500, 2: 1300, 1: 1000 };
+
+export function starToRating(stars: number | null | undefined): number {
+  return stars != null && STAR_RATING[stars] !== undefined ? STAR_RATING[stars] : BASE_RATING;
+}
 
 /** Standard ELO expected score for A against B. */
 function expectedScore(ratingA: number, ratingB: number): number {
@@ -202,6 +216,7 @@ export async function ensureUserTracksSeeded(userId: number): Promise<void> {
         mbid: recommendationsTable.mbid,
         title: recommendationsTable.title,
         artist: recommendationsTable.artist,
+        score: ratingsTable.score,
       })
       .from(ratingsTable)
       .innerJoin(recommendationsTable, eq(ratingsTable.recId, recommendationsTable.id))
@@ -211,10 +226,25 @@ export async function ensureUserTracksSeeded(userId: number): Promise<void> {
       .catch(() => []);
 
     const focus = await db
-      .select({ mbid: focusRatingsTable.mbid, title: focusRatingsTable.title, artist: focusRatingsTable.artist })
+      .select({
+        mbid: focusRatingsTable.mbid, title: focusRatingsTable.title,
+        artist: focusRatingsTable.artist, score: focusRatingsTable.score,
+      })
       .from(focusRatingsTable)
       .where(eq(focusRatingsTable.userId, userId))
       .catch(() => []);
+
+    // Highest star seen for each track (scores are stored as text; a listen-only
+    // rating leaves it null). The star sets the track's starting ELO anchor.
+    const starByMbid = new Map<string, number>();
+    const noteStar = (mbid: string, raw: string | null) => {
+      const s = raw != null ? Number(raw) : NaN;
+      if (!Number.isFinite(s) || s < 1) return;
+      const prev = starByMbid.get(mbid);
+      if (prev === undefined || s > prev) starByMbid.set(mbid, s);
+    };
+    for (const r of ratedRecs) if (r.mbid) noteStar(r.mbid, r.score);
+    for (const f of focus) if (f.mbid) noteStar(f.mbid, f.score);
 
     const byMbid = new Map<string, TrackMeta>();
     for (const t of [...seeds, ...ratedRecs, ...focus]) {
@@ -229,10 +259,38 @@ export async function ensureUserTracksSeeded(userId: number): Promise<void> {
         mbid,
         title: m.title,
         artist: m.artist,
-        rating: BASE_RATING,
+        rating: starToRating(starByMbid.get(mbid)),
       })))
       .onConflictDoNothing({ target: [trackEloTable.userId, trackEloTable.mbid] })
       .catch(() => undefined);
+
+    // Re-starring a track before any head-to-head should move its starting ELO,
+    // but a fresh row already existed so the insert above was a no-op for it.
+    // Realign the anchor for starred tracks that haven't been compared yet
+    // (matches = 0); compared tracks keep their earned rating. Grouped by target
+    // rating so this is at most one UPDATE per star tier.
+    if (starByMbid.size > 0) {
+      const byRating = new Map<number, string[]>();
+      for (const [mbid, star] of starByMbid) {
+        const rating = starToRating(star);
+        const bucket = byRating.get(rating);
+        if (bucket) bucket.push(mbid);
+        else byRating.set(rating, [mbid]);
+      }
+      await Promise.all(
+        [...byRating.entries()].map(([rating, mbids]) =>
+          db
+            .update(trackEloTable)
+            .set({ rating, updatedAt: new Date() })
+            .where(and(
+              eq(trackEloTable.userId, userId),
+              eq(trackEloTable.matches, 0),
+              inArray(trackEloTable.mbid, mbids),
+            ))
+            .catch(() => undefined),
+        ),
+      );
+    }
   } catch (err) {
     logger.warn({ err: String(err), userId }, "ELO: ensureUserTracksSeeded failed");
   }

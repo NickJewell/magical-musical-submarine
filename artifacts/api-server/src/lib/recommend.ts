@@ -6,7 +6,11 @@
 
 import { db, seedsTable, portraitsTable, diveStepsTable, recommendationsTable, ratingsTable, tasteEventsTable, divesTable } from "@workspace/db";
 import { eq, desc, and } from "drizzle-orm";
-import { enrichFromSeeds, enrichFromFocus, lastfmTopTrack, type EnrichResult, type Focus } from "./enrich";
+import {
+  enrichFromSeeds, enrichFromFocus, lastfmTopTrack,
+  lastfmSimilarArtists, lastfmTagTopArtists,
+  type EnrichResult, type SimilarArtist, type Focus,
+} from "./enrich";
 import { resolve, MB_REQUEST_TIMEOUT_MS } from "./musicbrainz";
 import { resolveLinks } from "./links";
 import { propose, narrate } from "./llm";
@@ -247,7 +251,12 @@ export async function recommend(opts: { stepId: number; userId: number }) {
 
   // ---- Control arm: ALWAYS inserted regardless of LLM outcome ----
   // Source: Last.fm (verified external dataset); MB resolution attempted but not required.
-  const wtRec = await buildWellTroddenRec({ stepId, diveId: step.diveId, enrichData, wtDir, seeds, directionLabel });
+  // Pass the in-genre LLM rec artists so the "obvious pick" is a CF neighbour of
+  // THIS dive's genre, not of the user's global seed taste.
+  const wtRec = await buildWellTroddenRec({
+    stepId, diveId: step.diveId, enrichData, wtDir, seeds, directionLabel,
+    llmRecArtists: llmRecs.map((r) => r.artist),
+  });
 
   // ---- Persist all recs ----
   const allRecs = [...llmRecs, wtRec];
@@ -303,14 +312,6 @@ function directionKeywords(text: string): string[] {
     .filter((w) => w.length > 3 && !WT_STOP_WORDS.has(w));
 }
 
-/** Clean wtDir.label → candidate artist name (strip genre/descriptor noise) */
-function extractArtistFromLabel(label: string): string {
-  return label
-    .replace(/\b(classics?|standards?|picks?|direction|obvious|well[- ]trodden|music|sounds?)\b/gi, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
 async function buildWellTroddenRec(opts: {
   stepId: number;
   diveId: number;
@@ -318,6 +319,7 @@ async function buildWellTroddenRec(opts: {
   wtDir: { label: string; rationale: string } | undefined;
   seeds: Array<{ artist: string; title: string }>;
   directionLabel: string;
+  llmRecArtists: string[];
 }): Promise<{
   diveStepId: number;
   type: string;
@@ -331,9 +333,10 @@ async function buildWellTroddenRec(opts: {
   arm: string;
   likelyKnown: string;
 }> {
-  const { stepId, diveId, enrichData, wtDir, seeds, directionLabel } = opts;
+  const { stepId, diveId, enrichData, wtDir, seeds, directionLabel, llmRecArtists } = opts;
 
-  // ---- 1. De-duplicate: skip artists already used in this dive's well_trodden recs ----
+  // ---- 1. De-duplicate: skip artists already used in this dive's well_trodden
+  // recs, and the three LLM recs on THIS step (the obvious pick must be distinct). ----
   const priorWt = await db
     .select({ artist: recommendationsTable.artist })
     .from(recommendationsTable)
@@ -341,45 +344,86 @@ async function buildWellTroddenRec(opts: {
     .where(and(eq(diveStepsTable.diveId, diveId), eq(recommendationsTable.arm, "well_trodden")))
     .catch(() => []);
   const usedArtists = new Set(priorWt.map((r) => r.artist.toLowerCase()));
+  const llmArtistSet = new Set(llmRecArtists.map((a) => a.toLowerCase()));
+  const isEligible = (name: string) => {
+    const n = name.toLowerCase();
+    return n.length > 1 && !usedArtists.has(n) && !llmArtistSet.has(n);
+  };
 
-  // ---- 2. Keyword scoring: rank candidates by alignment to wtDir + direction ----
+  // ---- 2. Build an IN-GENRE candidate pool ----
+  // The bug this fixes: enrichData is anchored on the user's first *seed*, so its
+  // similar-artist pool reflects their global taste (often nothing like the genre
+  // they're actually diving into). The three LLM recs, by contrast, ARE the genre
+  // being explored — so their aggregated CF neighbours are the real "obvious pick"
+  // for this leg. We rank a neighbour higher the more of the three recs it's
+  // similar to (a genuine collaborative-filtering centrality signal).
   const keywords = directionKeywords(`${wtDir?.label ?? ""} ${directionLabel}`);
-  const score = (text: string) =>
+  const kwScore = (text: string) =>
     keywords.filter((kw) => text.toLowerCase().includes(kw)).length;
 
-  // ---- 3. First choice: use wtDir.label as the artist the LLM intended ----
+  async function inGenrePool(): Promise<SimilarArtist[]> {
+    // (a) CF neighbours of the in-genre LLM recs — the primary, most reliable source.
+    if (llmRecArtists.length > 0) {
+      const lists = await Promise.all(llmRecArtists.map((a) => lastfmSimilarArtists(a).catch(() => [])));
+      const agg = new Map<string, { name: string; match: number; hits: number }>();
+      for (const list of lists) {
+        for (const a of list) {
+          const key = a.name.toLowerCase();
+          const cur = agg.get(key) ?? { name: a.name, match: 0, hits: 0 };
+          cur.match += a.match;
+          cur.hits += 1;
+          agg.set(key, cur);
+        }
+      }
+      // Sort by how many recs it neighbours (centrality), then summed match.
+      const ranked = [...agg.values()]
+        .sort((x, y) => y.hits - x.hits || y.match - x.match)
+        .map((a) => ({ name: a.name, match: a.match }));
+      if (ranked.length > 0) return ranked;
+    }
+
+    // (b) Genre-tag top artists — covers the "LLM produced nothing" case and any
+    // dive where the direction/well-trodden label reads as a genre tag.
+    for (const label of [wtDir?.label, directionLabel]) {
+      const tag = label?.trim();
+      if (!tag) continue;
+      const tagArtists = await lastfmTagTopArtists(tag).catch(() => []);
+      if (tagArtists.length > 0) return tagArtists;
+    }
+
+    // (c) Last resort: the seed-anchored pool (the old behaviour).
+    return enrichData.similarArtists;
+  }
+
   let wtTitle: string | null = null;
   let wtArtist: string | null = null;
 
-  if (wtDir?.label) {
-    const candidateArtist = extractArtistFromLabel(wtDir.label);
-    const isNotUsed = candidateArtist.length > 1 && !usedArtists.has(candidateArtist.toLowerCase());
-    if (isNotUsed) {
-      const topTrack = await lastfmTopTrack(candidateArtist).catch(() => null);
-      if (topTrack) {
-        wtTitle = topTrack.name;
-        wtArtist = candidateArtist;
-        logger.debug({ wtArtist, wtTitle, label: wtDir.label }, "Well-trodden: resolved from wtDir label");
-      }
+  const pool = (await inGenrePool())
+    .filter((a) => isEligible(a.name))
+    .map((a) => ({ ...a, _kw: kwScore(a.name) }))
+    // Pool is already genre-ranked; use keyword alignment only as a gentle nudge.
+    .sort((a, b) => b._kw - a._kw || b.match - a.match);
+
+  // Walk the ranked pool and take the first artist whose top track resolves.
+  for (const cand of pool.slice(0, 8)) {
+    const top = await lastfmTopTrack(cand.name).catch(() => null);
+    if (top) {
+      wtArtist = cand.name;
+      wtTitle = top.name;
+      logger.debug({ wtArtist, wtTitle, source: "in-genre CF pool" }, "Well-trodden: resolved from in-genre pool");
+      break;
     }
   }
 
-  // ---- 4. Fallback: score similar tracks/artists, prefer non-duplicates & direction-aligned ----
+  // ---- 3. Fallbacks if the pool yielded nothing playable ----
   if (!wtArtist) {
     const scoredTracks = enrichData.similarTracks
-      .map((t) => ({ ...t, _score: score(t.artist) + score(t.name), _used: usedArtists.has(t.artist.toLowerCase()) }))
-      .sort((a, b) => Number(a._used) - Number(b._used) || b._score - a._score || b.match - a.match);
-
-    const scoredArtists = enrichData.similarArtists
-      .map((a) => ({ ...a, _score: score(a.name), _used: usedArtists.has(a.name.toLowerCase()) }))
+      .map((t) => ({ ...t, _score: kwScore(t.artist) + kwScore(t.name), _used: !isEligible(t.artist) }))
       .sort((a, b) => Number(a._used) - Number(b._used) || b._score - a._score || b.match - a.match);
 
     if (scoredTracks.length > 0) {
       wtTitle  = scoredTracks[0].name;
       wtArtist = scoredTracks[0].artist;
-    } else if (scoredArtists.length > 0) {
-      wtArtist = scoredArtists[0].name;
-      wtTitle  = seeds[0]?.title ?? "a popular track";
     } else {
       // Last resort: primary seed
       wtArtist = seeds[0]?.artist ?? "Unknown artist";

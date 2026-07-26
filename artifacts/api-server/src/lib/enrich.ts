@@ -23,7 +23,7 @@ export interface SimilarTrack {
 
 // ---- Last.fm ----
 
-async function lastfmSimilarArtists(artist: string): Promise<SimilarArtist[]> {
+export async function lastfmSimilarArtists(artist: string): Promise<SimilarArtist[]> {
   if (!LASTFM_KEY) return [];
   const url =
     `${LASTFM_BASE}/?method=artist.getsimilar&artist=${encodeURIComponent(artist)}` +
@@ -93,7 +93,7 @@ async function lastfmTopTags(artist: string): Promise<string[]> {
   }
 }
 
-async function lastfmTagTopArtists(tag: string): Promise<SimilarArtist[]> {
+export async function lastfmTagTopArtists(tag: string): Promise<SimilarArtist[]> {
   if (!LASTFM_KEY) return [];
   const url =
     `${LASTFM_BASE}/?method=tag.gettopartists&tag=${encodeURIComponent(tag)}` +

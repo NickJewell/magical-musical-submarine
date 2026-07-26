@@ -41,6 +41,8 @@ vi.mock("../enrich.js", () => ({
   enrichFromSeeds: vi.fn(),
   enrichFromFocus: vi.fn(),
   lastfmTopTrack: vi.fn(),
+  lastfmSimilarArtists: vi.fn(),
+  lastfmTagTopArtists: vi.fn(),
 }));
 
 vi.mock("../musicbrainz.js", () => ({
@@ -59,6 +61,7 @@ vi.mock("../llm.js", () => ({
 
 vi.mock("../logger.js", () => ({
   logger: {
+    debug: vi.fn(),
     info: vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),
@@ -70,7 +73,7 @@ vi.mock("../logger.js", () => ({
 // ---------------------------------------------------------------------------
 
 import { db } from "@workspace/db";
-import { enrichFromSeeds, lastfmTopTrack } from "../enrich.js";
+import { enrichFromSeeds, lastfmTopTrack, lastfmSimilarArtists, lastfmTagTopArtists } from "../enrich.js";
 import { resolve } from "../musicbrainz.js";
 import { resolveLinks } from "../links.js";
 import { propose, narrate } from "../llm.js";
@@ -248,6 +251,10 @@ function setupEnrich() {
   // buildWellTroddenRec calls lastfmTopTrack(); default to no top track so it
   // falls through to the similar-tracks/artists scoring path.
   vi.mocked(lastfmTopTrack).mockResolvedValue(null);
+  // The in-genre CF pool (similar-artist + tag lookups) defaults to empty so the
+  // well-trodden builder degrades to the seed-anchored enrichData pool.
+  vi.mocked(lastfmSimilarArtists).mockResolvedValue([]);
+  vi.mocked(lastfmTagTopArtists).mockResolvedValue([]);
 }
 
 function setupLinks() {
@@ -326,6 +333,62 @@ describe("recommend() pipeline", () => {
       const arms = result.map((r) => r.arm);
       expect(arms.filter((a) => a === "llm")).toHaveLength(3);
       expect(arms.filter((a) => a === "well_trodden")).toHaveLength(1);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Scenario 1b: Well-trodden pick follows the dive's genre, not the seeds
+  // -------------------------------------------------------------------------
+  describe("well-trodden pick is an in-genre CF neighbour of the LLM recs", () => {
+    it("draws the obvious pick from the recs' similar artists, not the seed pool", async () => {
+      setupDbSelectSequence();
+      setupEnrich(); // seed pool = Thom Yorke / PJ Harvey (the WRONG neighbourhood)
+      setupLinks();
+      setupNarrate();
+
+      // Three in-genre (electro-pop) LLM recs.
+      const proposals = [
+        mkProposal("Lights & Music", "Cut Copy"),
+        mkProposal("Over and Over", "Hot Chip"),
+        mkProposal("All My Friends", "LCD Soundsystem"),
+      ];
+      vi.mocked(propose).mockResolvedValue(proposals);
+
+      vi.mocked(resolve)
+        .mockResolvedValueOnce(mkResolved("Lights & Music", "Cut Copy", "mbid-1"))
+        .mockResolvedValueOnce(mkResolved("Over and Over", "Hot Chip", "mbid-2"))
+        .mockResolvedValueOnce(mkResolved("All My Friends", "LCD Soundsystem", "mbid-3"))
+        .mockResolvedValueOnce(mkResolved("House of Jealous Lovers", "The Rapture", "mbid-wt"));
+
+      // CF neighbours of the in-genre recs — The Rapture is the central pick.
+      vi.mocked(lastfmSimilarArtists).mockResolvedValue([
+        { name: "The Rapture", match: 0.9 },
+        { name: "Yeah Yeah Yeahs", match: 0.6 },
+      ]);
+      // Only The Rapture yields a top track; seed-pool artists must never be tried.
+      vi.mocked(lastfmTopTrack).mockImplementation(async (artist: string) =>
+        artist === "The Rapture" ? { name: "House of Jealous Lovers", artist } : null,
+      );
+
+      setupDbInsert([
+        mkInserted("Lights & Music", "Cut Copy", "llm", "mbid-1"),
+        mkInserted("Over and Over", "Hot Chip", "llm", "mbid-2"),
+        mkInserted("All My Friends", "LCD Soundsystem", "llm", "mbid-3"),
+        mkInserted("House of Jealous Lovers", "The Rapture", "well_trodden", "mbid-wt"),
+      ]);
+
+      const result = await recommend({ stepId: STEP_ID, userId: USER_ID });
+
+      // Pool was built from the three in-genre recs…
+      expect(lastfmSimilarArtists).toHaveBeenCalledWith("Cut Copy");
+      expect(lastfmSimilarArtists).toHaveBeenCalledWith("Hot Chip");
+      expect(lastfmSimilarArtists).toHaveBeenCalledWith("LCD Soundsystem");
+      // …and the obvious pick came from that pool, not the seed neighbourhood.
+      expect(lastfmTopTrack).toHaveBeenCalledWith("The Rapture");
+      expect(lastfmTopTrack).not.toHaveBeenCalledWith("Thom Yorke");
+      expect(lastfmTopTrack).not.toHaveBeenCalledWith("PJ Harvey");
+
+      expect(result.filter((r) => r.arm === "well_trodden")).toHaveLength(1);
     });
   });
 

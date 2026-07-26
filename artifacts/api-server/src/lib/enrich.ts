@@ -46,7 +46,7 @@ export async function lastfmSimilarArtists(artist: string): Promise<SimilarArtis
   }
 }
 
-async function lastfmSimilarTracks(artist: string, track: string): Promise<SimilarTrack[]> {
+export async function lastfmSimilarTracks(artist: string, track: string): Promise<SimilarTrack[]> {
   if (!LASTFM_KEY) return [];
   const url =
     `${LASTFM_BASE}/?method=track.getsimilar` +

@@ -83,6 +83,18 @@ async function l2Set(key: string, body: unknown, ttlMs: number): Promise<void> {
   }
 }
 
+/** Remove a single cache entry from both L1 (in-memory) and L2 (DB).
+ *  Call this when you know the cached value is stale before the TTL expires —
+ *  e.g. a Deezer preview URL whose signed token has expired. */
+export async function bustCacheEntry(key: string): Promise<void> {
+  l1Cache.delete(key);
+  try {
+    await db.delete(httpCacheTable).where(eq(httpCacheTable.key, key));
+  } catch (err) {
+    logger.warn({ err, key }, "bustCacheEntry L2 delete failed — non-fatal");
+  }
+}
+
 /** Purge rows that have already expired (run occasionally to keep the table small).
  *  Returns the number of rows deleted. */
 export async function purgeExpiredHttpCache(): Promise<number> {

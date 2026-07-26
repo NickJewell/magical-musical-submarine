@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Loader2, Search, Check, ChevronDown, ListPlus, Star } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { TrackPreviewPill } from '@/components/TrackPreviewPill';
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
 
@@ -255,44 +256,58 @@ function FeedContent({ userId, onDone }: { userId: number; onDone: () => void })
             const added    = addedKeys.has(key);
             const flashing = justAdded === key;
             return (
-              <button
+              <div
                 key={key}
-                onClick={() => handleAdd(r)}
-                disabled={added || addSeed.isPending}
                 className={cn(
-                  'w-full text-left p-4 rounded-xl transition-all flex items-center gap-4 border group',
+                  'rounded-xl border transition-all',
                   added
-                    ? 'bg-primary/8 border-primary/20 opacity-60 cursor-default'
-                    : 'bg-secondary/20 hover:bg-secondary/50 active:bg-secondary/70 border-border/30 hover:border-primary/40',
+                    ? 'bg-primary/8 border-primary/20 opacity-60'
+                    : 'bg-secondary/20 border-border/30',
                 )}
               >
-                <div className="flex-1 min-w-0 space-y-0.5">
-                  <p className="font-semibold text-base text-foreground truncate leading-tight">{r.title}</p>
-                  <p className="text-sm font-medium text-primary/90 truncate">{r.artist}</p>
-                  {r.release && <p className="text-xs text-muted-foreground truncate">{r.release}</p>}
-                  {!r.verified && (
-                    <p className="text-[10px] font-mono text-amber-400/70 uppercase tracking-widest">unverified</p>
+                {/* Main tap target — adds the track */}
+                <button
+                  onClick={() => handleAdd(r)}
+                  disabled={added || addSeed.isPending}
+                  className={cn(
+                    'w-full text-left p-4 flex items-center gap-4 group rounded-xl',
+                    !added && 'hover:bg-secondary/30 active:bg-secondary/50',
                   )}
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  {r.year && (
-                    <span className="text-xs font-mono text-muted-foreground bg-secondary/60 px-2 py-0.5 rounded-full border border-border/50">
-                      {r.year}
-                    </span>
-                  )}
-                  <div className={cn(
-                    'w-7 h-7 rounded-full flex items-center justify-center transition-all duration-300',
-                    flashing ? 'bg-primary scale-110' :
-                    added    ? 'bg-primary/20' :
-                               'bg-primary/15 group-hover:bg-primary/30',
-                  )}>
-                    <Check className={cn(
-                      'w-3.5 h-3.5 transition-opacity',
-                      added ? 'text-primary opacity-100' : 'opacity-0',
-                    )} />
+                >
+                  <div className="flex-1 min-w-0 space-y-0.5">
+                    <p className="font-semibold text-base text-foreground truncate leading-tight">{r.title}</p>
+                    <p className="text-sm font-medium text-primary/90 truncate">{r.artist}</p>
+                    {r.release && <p className="text-xs text-muted-foreground truncate">{r.release}</p>}
+                    {!r.verified && (
+                      <p className="text-[10px] font-mono text-amber-400/70 uppercase tracking-widest">unverified</p>
+                    )}
                   </div>
-                </div>
-              </button>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {r.year && (
+                      <span className="text-xs font-mono text-muted-foreground bg-secondary/60 px-2 py-0.5 rounded-full border border-border/50">
+                        {r.year}
+                      </span>
+                    )}
+                    <div className={cn(
+                      'w-7 h-7 rounded-full flex items-center justify-center transition-all duration-300',
+                      flashing ? 'bg-primary scale-110' :
+                      added    ? 'bg-primary/20' :
+                                 'bg-primary/15 group-hover:bg-primary/30',
+                    )}>
+                      <Check className={cn(
+                        'w-3.5 h-3.5 transition-opacity',
+                        added ? 'text-primary opacity-100' : 'opacity-0',
+                      )} />
+                    </div>
+                  </div>
+                </button>
+                {/* Preview pill — only for verified tracks with a real MBID */}
+                {r.verified && r.mbid && (
+                  <div className="px-4 pb-3 -mt-1">
+                    <TrackPreviewPill title={r.title} artist={r.artist} />
+                  </div>
+                )}
+              </div>
             );
           })}
 

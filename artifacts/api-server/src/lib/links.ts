@@ -3,7 +3,7 @@
  * Returns full deep-link URLs plus parsed embed IDs (§18) and artwork thumbnail.
  */
 
-import { httpGet } from "./http";
+import { httpGet, bustCacheEntry } from "./http";
 import { logger } from "./logger";
 import { db, resolvedEntitiesTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
@@ -81,43 +81,75 @@ interface ItunesData {
 interface DeezerTrack { id: number; title?: string; preview?: string }
 interface DeezerSearchResp { data?: DeezerTrack[] }
 
+// ---- Deezer URL freshness helpers ----
+
+/** Extract the Akamai token expiry (Unix seconds → ms) from a Deezer CDN preview URL. */
+function deezerUrlExpiry(url: string): number | null {
+  const m = url.match(/\bexp=(\d+)/);
+  return m ? parseInt(m[1], 10) * 1000 : null;
+}
+
+/** Returns true if the signed preview URL is still valid with a 3-minute safety buffer. */
+function isDeezerUrlFresh(url?: string | null): boolean {
+  if (!url) return true; // no URL → nothing to validate
+  const exp = deezerUrlExpiry(url);
+  return exp === null || Date.now() < exp - 3 * 60 * 1000;
+}
+
 /** Deezer search — free, no auth. Returns Deezer track ID for embeds + 30s preview URL. Non-throwing.
  *
- *  Cache TTL is 20 hours: Deezer preview URLs carry signed tokens that expire in ~24 hours,
- *  so caching longer than that produces stale URLs that 403 on playback.
+ *  Cache strategy: search results are cached for 7 days (track IDs are stable).
+ *  Before returning, we check whether the signed preview URL is still fresh.
+ *  If it has expired (Deezer tokens live ~44 minutes), we bust both cache keys
+ *  and re-fetch so the caller always gets a live URL.
  *
- *  Search uses Deezer advanced syntax (`artist:"X" track:"Y"`) for precision; the plain
- *  `artist title` fallback is tried when the structured query returns nothing.
+ *  Separate cache keys for structured vs plain fallback query prevent a cached
+ *  empty structured result from short-circuiting the fallback.
  */
 async function fetchDeezerData(artist: string, title: string): Promise<{ deezerId: string | null; previewUrl: string | null }> {
-  const TTL_MS   = 20 * 60 * 60 * 1000; // 20 hours — safely under the ~24h token expiry
-  const cacheKey = `deezer:${artist.toLowerCase()}:${title.toLowerCase()}`;
+  const SEARCH_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days — IDs are stable; we validate freshness manually
+  const artistKey = artist.toLowerCase().trim();
+  const titleKey  = title.toLowerCase().trim();
+  const sKey = `deezer:s:${artistKey}:${titleKey}`; // structured query cache
+  const pKey = `deezer:p:${artistKey}:${titleKey}`; // plain fallback cache
 
-  const search = async (q: string): Promise<DeezerSearchResp> =>
-    httpGet<DeezerSearchResp>(
-      `https://api.deezer.com/search?q=${encodeURIComponent(q)}&limit=5`,
-      { cacheKey, cacheTtlMs: TTL_MS },
-    );
-
-  try {
-    // 1. Structured search for best precision
+  /** Run search (structured first, plain fallback), return the best matching track. */
+  const runSearch = async (): Promise<DeezerTrack | null> => {
     const structured = `artist:"${artist}" track:"${title}"`;
-    let data = await search(structured);
+    const sData = await httpGet<DeezerSearchResp>(
+      `https://api.deezer.com/search?q=${encodeURIComponent(structured)}&limit=5`,
+      { cacheKey: sKey, cacheTtlMs: SEARCH_TTL_MS },
+    );
+    let results = sData.data ?? [];
 
-    // 2. Fall back to plain query if structured returns nothing
-    if (!data.data?.length) {
-      data = await search(`${artist} ${title}`);
+    if (!results.length) {
+      const pData = await httpGet<DeezerSearchResp>(
+        `https://api.deezer.com/search?q=${encodeURIComponent(`${artist} ${title}`)}&limit=5`,
+        { cacheKey: pKey, cacheTtlMs: SEARCH_TTL_MS },
+      );
+      results = pData.data ?? [];
     }
 
-    // Pick the best match: prefer exact title match (case-insensitive), else first result
-    const results = data.data ?? [];
-    const titleLower = title.toLowerCase();
-    const best =
-      results.find((t) => t.title?.toLowerCase() === titleLower) ??
-      results.find((t) => t.title?.toLowerCase().startsWith(titleLower)) ??
-      results[0];
+    return (
+      results.find((t) => t.title?.toLowerCase() === titleKey) ??
+      results.find((t) => t.title?.toLowerCase().startsWith(titleKey)) ??
+      results[0] ??
+      null
+    );
+  };
 
+  try {
+    let best = await runSearch();
     if (!best) return { deezerId: null, previewUrl: null };
+
+    // If the cached preview URL token has expired, bust both cache entries and re-fetch
+    if (!isDeezerUrlFresh(best.preview)) {
+      logger.debug({ artist, title }, "Deezer preview URL expired — busting cache and re-fetching");
+      await Promise.all([bustCacheEntry(sKey), bustCacheEntry(pKey)]);
+      best = await runSearch();
+      if (!best) return { deezerId: null, previewUrl: null };
+    }
+
     return { deezerId: String(best.id), previewUrl: best.preview ?? null };
   } catch {
     return { deezerId: null, previewUrl: null };

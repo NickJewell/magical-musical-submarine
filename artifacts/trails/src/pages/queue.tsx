@@ -182,10 +182,11 @@ function QueueContent({ userId, diveId, onNavigate }: { userId: number, diveId: 
       )}
 
       {ratedCount > 0 && (
-        <PathRatingSection 
-          userId={userId} 
-          stepId={stepId} 
-          onComplete={() => onNavigate(`/dive/${diveId}`)} 
+        <PathRatingSection
+          userId={userId}
+          stepId={stepId}
+          allRated={ratedCount >= recs.length && recs.length > 0}
+          onComplete={() => onNavigate(ratedCount >= recs.length && recs.length > 0 ? '/' : `/dive/${diveId}`)}
         />
       )}
     </div>
@@ -431,7 +432,7 @@ function ThreeStarRating({
   );
 }
 
-function PathRatingSection({ userId, stepId, onComplete }: { userId: number, stepId: number, onComplete: () => void }) {
+function PathRatingSection({ userId, stepId, allRated, onComplete }: { userId: number, stepId: number, allRated: boolean, onComplete: () => void }) {
   const [score, setScore] = useState<number | null>(null);
   const rateStep = useRateStep();
 
@@ -457,7 +458,7 @@ function PathRatingSection({ userId, stepId, onComplete }: { userId: number, ste
           disabled={!rateStep.isSuccess || rateStep.isPending}
           className="w-full h-14 rounded-full bg-primary text-primary-foreground text-lg shadow-[0_0_20px_hsla(180,80%,40%,0.2)] mt-8"
         >
-          {rateStep.isPending ? <Loader2 className="w-5 h-5 animate-spin" /> : "Continue dive"}
+          {rateStep.isPending ? <Loader2 className="w-5 h-5 animate-spin" /> : allRated ? "New dive?" : "Continue dive"}
         </Button>
       </div>
     </div>

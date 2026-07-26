@@ -436,9 +436,16 @@ async function buildWellTroddenRec(opts: {
   wtTitle = wtTitle ?? "a popular track";
   wtArtist = wtArtist ?? "Unknown artist";
 
+  // Use the direction label (always accurate to this step) rather than the
+  // pre-baked wtDir.rationale (written at hypothesis time — may reference a
+  // different artist/genre if the CF resolution diverged from the original context).
+  const wtRationale = wtDir?.label
+    ? `A reliable pick within the ${wtDir.label} direction.`
+    : "A reliable recommendation based on listening patterns similar to yours.";
+
   const narrative =
     `The well-trodden road: "${wtTitle}" by ${wtArtist} is the obvious conventional pick. ` +
-    (wtDir?.rationale ?? "A reliable recommendation based on listening patterns similar to yours.");
+    wtRationale;
 
   // Attempt MB resolution — not gated for control arm
   let mbid = `lastfm:${wtArtist.toLowerCase().replace(/[^\w]/g, "-")}:${wtTitle.toLowerCase().replace(/[^\w]/g, "-")}`;

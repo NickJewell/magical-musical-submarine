@@ -88,11 +88,12 @@ export function PairwiseSlider({
         </div>
       );
     }
-    if (url === null) return null;
 
+    // Always render the pill — if pre-fetch returned null the pill fetches on
+    // click; if Deezer still has nothing it returns to idle silently.
     return (
       <div className="mt-2 flex justify-center">
-        <TrackPreviewPill title={title} artist={artist} previewUrl={url} />
+        <TrackPreviewPill title={title} artist={artist} previewUrl={url ?? undefined} />
       </div>
     );
   };

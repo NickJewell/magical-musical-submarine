@@ -76,7 +76,23 @@ function Landing() {
 }
 
 function SignedInHome({ onNavigate }: { onNavigate: (path: string) => void }) {
-  const { localUserId, isLoading } = useLocalUser();
+  const { localUserId, isLoading, isError } = useLocalUser();
+
+  if (isError) {
+    return (
+      <div className="flex-1 flex items-center justify-center min-h-screen">
+        <div className="space-y-4 text-center">
+          <p className="text-sm text-muted-foreground">Couldn't reach the server.</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="text-xs font-mono text-primary/70 hover:text-primary uppercase tracking-widest"
+          >
+            Tap to retry
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (isLoading || !localUserId) {
     return (

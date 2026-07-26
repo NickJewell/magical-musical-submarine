@@ -1,6 +1,6 @@
 /**
  * Resolves the signed-in Clerk user to a local integer userId via GET /api/me.
- * Returns { localUserId, name, isLoading } — null while loading or signed out.
+ * Returns { localUserId, name, isLoading, isError } — null while loading or signed out.
  */
 import { useQuery } from '@tanstack/react-query';
 import { useUser } from '@clerk/react';
@@ -19,17 +19,18 @@ async function fetchMe(): Promise<LocalUser> {
 export function useLocalUser() {
   const { isSignedIn, isLoaded } = useUser();
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ['me'],
     queryFn: fetchMe,
     enabled: isLoaded && !!isSignedIn,
     staleTime: 5 * 60 * 1000,
-    retry: false,
+    retry: 1, // one retry in case of a transient 401 on first load
   });
 
   return {
     localUserId: data?.id ?? null,
     name: data?.name ?? null,
-    isLoading: !isLoaded || (isSignedIn && isLoading),
+    isLoading: !isLoaded || (!!isSignedIn && isLoading),
+    isError: isLoaded && !!isSignedIn && isError,
   };
 }

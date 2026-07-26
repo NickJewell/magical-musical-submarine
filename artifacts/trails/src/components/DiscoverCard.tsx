@@ -15,13 +15,15 @@ interface DiscoverTrack {
 
 interface DiscoverResponse {
   track?: DiscoverTrack;
-  artworkUrl?: string | null;
 }
 
 /**
  * A rapid "rate to rank" feed on Home: collaborative-filtering pulls a fresh
  * track from what the user already ranks highest; a star (or skip) records it
  * and immediately serves the next — the fastest way to grow the rankings table.
+ *
+ * Artwork is fetched lazily via /api/discover/artwork so it never blocks the
+ * initial render.  The letter placeholder shows until artwork resolves.
  */
 export function DiscoverCard({ userId }: { userId: number }) {
   const [track, setTrack]             = useState<DiscoverTrack | null>(null);
@@ -34,6 +36,16 @@ export function DiscoverCard({ userId }: { userId: number }) {
   const [note, setNote]               = useState('');
   const [noteOpen, setNoteOpen]       = useState(false);
   const servedRef = useRef<string[]>([]);
+
+  const fetchArtwork = useCallback(async (artist: string, title: string) => {
+    try {
+      const params = new URLSearchParams({ artist, title });
+      const r = await fetch(`${basePath}/api/discover/artwork?${params}`);
+      if (!r.ok) return;
+      const d = await r.json() as { artworkUrl: string | null };
+      if (d.artworkUrl) setArtwork(d.artworkUrl);
+    } catch { /* non-critical */ }
+  }, []);
 
   const loadNext = useCallback(async () => {
     setLoading(true);
@@ -50,16 +62,17 @@ export function DiscoverCard({ userId }: { userId: number }) {
       if (!d.track) { setTrack(null); setEmpty(true); }
       else {
         setTrack(d.track);
-        setArtwork(d.artworkUrl ?? null);
         servedRef.current.push(`${d.track.title}|${d.track.artist}`.toLowerCase());
         setEmpty(false);
+        // Artwork is non-blocking — fire after track is set
+        fetchArtwork(d.track.artist, d.track.title);
       }
     } catch {
       setEmpty(true);
     } finally {
       setLoading(false);
     }
-  }, [userId]);
+  }, [userId, fetchArtwork]);
 
   useEffect(() => { loadNext(); }, [loadNext]);
 
@@ -172,11 +185,11 @@ export function DiscoverCard({ userId }: { userId: number }) {
           )}
 
           {/* Stars + skip */}
-          <div className="flex items-center justify-between">
-            <div
-              className="flex items-center gap-1"
-              onMouseLeave={() => setHoveredStar(null)}
-            >
+          <div
+            className="flex items-center justify-between"
+            onMouseLeave={() => setHoveredStar(null)}
+          >
+            <div className="flex items-center gap-1">
               {[1, 2, 3].map((s) => {
                 const active = typeof saving === 'number' ? saving : (hoveredStar ?? 0);
                 const filled = s <= active;

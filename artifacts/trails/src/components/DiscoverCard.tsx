@@ -10,6 +10,8 @@ interface DiscoverTrack {
   title: string;
   artist: string;
   year: number | null;
+  spotifyId: string | null;
+  artworkUrl: string | null;
 }
 
 /**
@@ -43,9 +45,20 @@ export function DiscoverCard({ userId }: { userId: number }) {
       const d = await r.json();
       if (!d.track) { setTrack(null); setEmpty(true); }
       else {
-        setTrack(d.track);
-        servedRef.current.push(`${d.track.title}|${d.track.artist}`.toLowerCase());
+        const t = d.track as DiscoverTrack;
+        setTrack(t);
+        servedRef.current.push(`${t.title}|${t.artist}`.toLowerCase());
         setEmpty(false);
+        // Pool tracks carry a Spotify id → seed the player for an instant preview.
+        if (t.spotifyId) {
+          setLinks({
+            spotify: `https://open.spotify.com/track/${t.spotifyId}`,
+            youtube: null,
+            spotifyTrackId: t.spotifyId,
+            youtubeVideoId: null,
+            deezerId: null,
+          });
+        }
       }
     } catch {
       setEmpty(true);
@@ -93,7 +106,7 @@ export function DiscoverCard({ userId }: { userId: number }) {
 
   const skip = () => { if (saving === null) { setSaving('skip'); loadNext().finally(() => setSaving(null)); } };
 
-  const artwork = (links as (ResolvedLinks & { artworkUrl?: string | null }) | null)?.artworkUrl ?? null;
+  const artwork = track?.artworkUrl ?? (links as (ResolvedLinks & { artworkUrl?: string | null }) | null)?.artworkUrl ?? null;
 
   return (
     <div className="rounded-2xl border border-primary/15 bg-secondary/10 p-5 space-y-4">

@@ -4,7 +4,7 @@
  * A well_trodden control-arm record is ALWAYS inserted for every step (A/B comparison).
  */
 
-import { db, seedsTable, portraitsTable, diveStepsTable, recommendationsTable, ratingsTable, tasteEventsTable, divesTable } from "@workspace/db";
+import { db, seedsTable, portraitsTable, diveStepsTable, recommendationsTable, ratingsTable, focusRatingsTable, tasteEventsTable, divesTable } from "@workspace/db";
 import { eq, desc, and } from "drizzle-orm";
 import {
   enrichFromSeeds, enrichFromFocus, lastfmTopTrack,
@@ -19,6 +19,66 @@ import { logger } from "./logger";
 
 const MAX_CANDIDATES = 7;
 const TARGET_RECS = 3;
+
+/** How many already-rated tracks to name in the propose prompt as a soft hint. */
+const RATED_AVOID_HINT_MAX = 30;
+
+const normalize = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
+/** Stable identity for a track independent of which resolver produced its mbid. */
+const trackKey = (title: string, artist: string) => `${normalize(title)}|${normalize(artist)}`;
+
+interface RatedIndex {
+  mbids: Set<string>;
+  keys: Set<string>;
+  recent: Array<{ title: string; artist: string }>;
+}
+
+/**
+ * Every track the user has already rated — from dive-track ratings AND Discover
+ * & Rank (focus) ratings — indexed by mbid and by normalized "title|artist". A
+ * dive shouldn't re-serve a song they've already judged, so this is the
+ * exclusion set the propose/resolve loop and the well-trodden arm filter
+ * against. We match on both mbid and title/artist because the same song can land
+ * under different mbids depending on the resolver (real MusicBrainz id vs a
+ * synthetic `lastfm:`/`spotify:` key).
+ */
+async function loadRatedTrackIndex(userId: number): Promise<RatedIndex> {
+  const [recRated, focusRated] = await Promise.all([
+    db
+      .select({
+        mbid: recommendationsTable.mbid,
+        title: recommendationsTable.title,
+        artist: recommendationsTable.artist,
+      })
+      .from(ratingsTable)
+      .innerJoin(recommendationsTable, eq(ratingsTable.recId, recommendationsTable.id))
+      .innerJoin(diveStepsTable, eq(recommendationsTable.diveStepId, diveStepsTable.id))
+      .innerJoin(divesTable, eq(diveStepsTable.diveId, divesTable.id))
+      .where(eq(divesTable.userId, userId))
+      .catch(() => []),
+    db
+      .select({
+        mbid: focusRatingsTable.mbid,
+        title: focusRatingsTable.title,
+        artist: focusRatingsTable.artist,
+      })
+      .from(focusRatingsTable)
+      .where(eq(focusRatingsTable.userId, userId))
+      .catch(() => []),
+  ]);
+
+  const mbids = new Set<string>();
+  const keys = new Set<string>();
+  const recent: Array<{ title: string; artist: string }> = [];
+  for (const r of [...recRated, ...focusRated]) {
+    if (r.mbid) mbids.add(r.mbid);
+    if (r.title && r.artist) {
+      keys.add(trackKey(r.title, r.artist));
+      if (recent.length < RATED_AVOID_HINT_MAX) recent.push({ title: r.title, artist: r.artist });
+    }
+  }
+  return { mbids, keys, recent };
+}
 
 /** Max time to wait for the LLM propose step (ms). */
 const PROPOSE_BUDGET_MS = 25_000;
@@ -85,6 +145,11 @@ export async function recommend(opts: { stepId: number; userId: number }) {
     score: r.score != null ? parseFloat(String(r.score)) : null,
     reviewText: r.reviewText ?? null,
   }));
+
+  // Tracks the user has already rated — a dive shouldn't re-serve these, so we
+  // hard-filter proposals and the well-trodden pick against this set below.
+  const ratedIndex = await loadRatedTrackIndex(userId);
+  const avoidHint = ratedIndex.recent.map((r) => `"${r.title}" by ${r.artist}`);
 
   // Head-to-head ELO signal — the user's strongest-ranked tracks steer propose.
   const eloSignal = await getEloSignal(userId, 6);
@@ -160,6 +225,7 @@ export async function recommend(opts: { stepId: number; userId: number }) {
           directionRationale,
           similarArtists: similarArtistNames,
           eloTop: eloTopFormatted,
+          avoid: avoidHint,
           count: MAX_CANDIDATES,
           broader,
         }),
@@ -177,6 +243,13 @@ export async function recommend(opts: { stepId: number; userId: number }) {
     for (const c of candidates) {
       if (roundVerified.length >= TARGET_RECS) break;
 
+      // Skip anything the user has already rated (pre-resolve — saves an MB
+      // lookup). This is the main fix: a dive must not re-serve rated songs.
+      if (ratedIndex.keys.has(trackKey(c.title, c.artist))) {
+        logger.debug({ stepId, title: c.title, artist: c.artist }, "Skipping already-rated candidate (pre-resolve)");
+        continue;
+      }
+
       const remainingMs = resolveDeadline - Date.now();
       if (remainingMs <= 0) {
         logger.warn({ stepId, verified: roundVerified.length }, "Resolve budget exhausted — stopping resolve loop early");
@@ -188,6 +261,17 @@ export async function recommend(opts: { stepId: number; userId: number }) {
       const resolved = await resolve(c, effectiveTimeout);
       if (!resolved) {
         // Similarity-gate rejections and timeout errors are both logged inside musicbrainz.ts
+        continue;
+      }
+      // Re-check after resolution: MusicBrainz canonicalizes the title/artist and
+      // gives the real mbid, so a rated track the LLM spelled differently is
+      // caught here. Also drop intra-round duplicates (the LLM can repeat a
+      // track, or two candidates can resolve to the same recording).
+      if (ratedIndex.mbids.has(resolved.mbid) || ratedIndex.keys.has(trackKey(resolved.title, resolved.artist))) {
+        logger.debug({ stepId, mbid: resolved.mbid }, "Skipping already-rated candidate (post-resolve)");
+        continue;
+      }
+      if (roundVerified.some((v) => v.mbid === resolved.mbid || trackKey(v.title, v.artist) === trackKey(resolved.title, resolved.artist))) {
         continue;
       }
       // Use the candidate's declared type (always "track" — locked by LLM schema),
@@ -256,6 +340,7 @@ export async function recommend(opts: { stepId: number; userId: number }) {
   const wtRec = await buildWellTroddenRec({
     stepId, diveId: step.diveId, enrichData, wtDir, seeds, directionLabel,
     llmRecArtists: llmRecs.map((r) => r.artist),
+    ratedIndex,
   });
 
   // ---- Persist all recs ----
@@ -320,6 +405,7 @@ async function buildWellTroddenRec(opts: {
   seeds: Array<{ artist: string; title: string }>;
   directionLabel: string;
   llmRecArtists: string[];
+  ratedIndex: RatedIndex;
 }): Promise<{
   diveStepId: number;
   type: string;
@@ -333,7 +419,7 @@ async function buildWellTroddenRec(opts: {
   arm: string;
   likelyKnown: string;
 }> {
-  const { stepId, diveId, enrichData, wtDir, seeds, directionLabel, llmRecArtists } = opts;
+  const { stepId, diveId, enrichData, wtDir, seeds, directionLabel, llmRecArtists, ratedIndex } = opts;
 
   // ---- 1. De-duplicate: skip artists already used in this dive's well_trodden
   // recs, and the three LLM recs on THIS step (the obvious pick must be distinct). ----
@@ -404,10 +490,11 @@ async function buildWellTroddenRec(opts: {
     // Pool is already genre-ranked; use keyword alignment only as a gentle nudge.
     .sort((a, b) => b._kw - a._kw || b.match - a.match);
 
-  // Walk the ranked pool and take the first artist whose top track resolves.
+  // Walk the ranked pool and take the first artist whose top track resolves and
+  // hasn't already been rated (the obvious pick is a rec too — no repeats).
   for (const cand of pool.slice(0, 8)) {
     const top = await lastfmTopTrack(cand.name).catch(() => null);
-    if (top) {
+    if (top && !ratedIndex.keys.has(trackKey(top.name, cand.name))) {
       wtArtist = cand.name;
       wtTitle = top.name;
       logger.debug({ wtArtist, wtTitle, source: "in-genre CF pool" }, "Well-trodden: resolved from in-genre pool");
@@ -418,6 +505,7 @@ async function buildWellTroddenRec(opts: {
   // ---- 3. Fallbacks if the pool yielded nothing playable ----
   if (!wtArtist) {
     const scoredTracks = enrichData.similarTracks
+      .filter((t) => !ratedIndex.keys.has(trackKey(t.name, t.artist)))
       .map((t) => ({ ...t, _score: kwScore(t.artist) + kwScore(t.name), _used: !isEligible(t.artist) }))
       .sort((a, b) => Number(a._used) - Number(b._used) || b._score - a._score || b.match - a.match);
 

@@ -176,6 +176,7 @@ router.get("/timeline", async (req, res) => {
             score:        latestRating.get(ctrlRec.id)?.score ?? null,
             listenState:  latestRating.get(ctrlRec.id)?.listenState ?? null,
             reviewText:   latestRating.get(ctrlRec.id)?.reviewText ?? null,
+            arm:          ctrlRec.arm,
             linksJson:    ctrlRec.linksJson ?? null,
             narrativeText: ctrlRec.narrativeText ?? null,
           }

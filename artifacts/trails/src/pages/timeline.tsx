@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useLocation } from 'wouter';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRateRec, getGetPortraitQueryKey } from '@workspace/api-client-react';
 import { useLocalUser } from '@/lib/useLocalUser';
@@ -8,7 +9,7 @@ import {
 } from '@/components/ui/dialog';
 import {
   Loader2, ChevronDown, ChevronUp, Star, ExternalLink,
-  Music, Radio, Check, Trash2, RefreshCw, NotebookPen, Compass,
+  Music, Radio, Check, Trash2, RefreshCw, NotebookPen, Compass, ArrowUpRight,
 } from 'lucide-react';
 import { InlinePlayer, type ResolvedLinks } from '@/components/InlinePlayer';
 import { DiveFromTrackButton } from '@/components/DiveFromTrackButton';
@@ -339,6 +340,7 @@ function PathCard({
   onTastingNote: (diveStepId: number, note: string, at: string) => void;
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
+  const [, setLocation] = useLocation();
   const { count, avgScore, newCount } = path.summary;
 
   const collapsedLabel = [
@@ -351,22 +353,27 @@ function PathCard({
     <div className="rounded-2xl border border-border/40 bg-secondary/10 overflow-hidden group/card">
       {/* Path header */}
       <div className="w-full flex items-start gap-2 px-4 py-3 hover:bg-secondary/20 transition-colors">
-        <button
-          onClick={() => setExpanded((e) => !e)}
-          className="flex-1 min-w-0 text-left"
-        >
+        <div className="flex-1 min-w-0">
           {path.diveName && (
-            <p className="text-[10px] font-mono text-muted-foreground/50 uppercase tracking-widest truncate mb-0.5">
-              {path.diveName}
+            // The dive name jumps back into the main dive path.
+            <button
+              onClick={() => setLocation(`/dive/${path.diveId}`)}
+              title="Open this dive"
+              className="group/name flex items-center gap-1 max-w-full text-[10px] font-mono text-muted-foreground/50 hover:text-primary uppercase tracking-widest mb-0.5 transition-colors"
+            >
+              <span className="truncate">{path.diveName}</span>
+              <ArrowUpRight className="w-3 h-3 shrink-0 opacity-0 group-hover/name:opacity-100 transition-opacity" />
+            </button>
+          )}
+          <button onClick={() => setExpanded((e) => !e)} className="w-full text-left">
+            <p className="text-sm font-medium italic text-foreground/90 leading-snug">
+              {path.title}
             </p>
-          )}
-          <p className="text-sm font-medium italic text-foreground/90 leading-snug">
-            {path.title}
-          </p>
-          {!expanded && (
-            <p className="text-[10px] font-mono text-muted-foreground/50 mt-1">{collapsedLabel}</p>
-          )}
-        </button>
+            {!expanded && (
+              <p className="text-[10px] font-mono text-muted-foreground/50 mt-1">{collapsedLabel}</p>
+            )}
+          </button>
+        </div>
         <button
           onClick={(e) => { e.stopPropagation(); onRequestDelete(path); }}
           title="Delete this path"
@@ -392,6 +399,17 @@ function PathCard({
           {path.songs.map((s) => (
             <SongRow key={s.recId} song={s} onOpen={onOpenSong} />
           ))}
+
+          {/* Obvious pick (the well-trodden control arm) — rateable like any song,
+              so its rating shows on the timeline too. */}
+          {path.wellTrodden && (
+            <div className="mt-1 pt-1 border-t border-border/15">
+              <p className="px-3 pt-1 text-[9px] font-mono text-muted-foreground/40 uppercase tracking-widest">
+                Obvious pick
+              </p>
+              <SongRow song={path.wellTrodden} onOpen={onOpenSong} />
+            </div>
+          )}
 
           {/* Footer actions */}
           <div className="flex items-center justify-between gap-3 px-3 pt-2 pb-1">
@@ -871,6 +889,10 @@ function TimelineContent({ userId }: { userId: number }) {
           songs: path.songs.map((s) =>
             s.recId === recId ? { ...s, score, listenState } : s,
           ),
+          wellTrodden:
+            path.wellTrodden && path.wellTrodden.recId === recId
+              ? { ...path.wellTrodden, score, listenState }
+              : path.wellTrodden,
         })),
       })),
     );

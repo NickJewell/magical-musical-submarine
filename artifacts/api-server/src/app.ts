@@ -1,4 +1,7 @@
 import express, { type Express } from "express";
+import path from "node:path";
+import fs from "node:fs";
+import { fileURLToPath } from "node:url";
 import cors from "cors";
 import pinoHttp from "pino-http";
 import { clerkMiddleware } from "@clerk/express";
@@ -37,6 +40,34 @@ app.use(
 );
 
 app.use(cors({ credentials: true, origin: true }));
+
+// ---------------------------------------------------------------------------
+// Single-origin static serving: the built trails SPA lives on the SAME domain
+// as the API, so Clerk's same-origin proxy (/api/__clerk) and credentialed
+// cookies keep working. Mounted BEFORE the body parsers and Clerk session
+// middleware so static assets and client-side routes don't pay for auth
+// resolution (auth is enforced client-side and on /api). In dev the frontend
+// runs on its own Vite server and this block is skipped (the build dir won't
+// exist). Override the location with STATIC_DIR if the layout differs.
+// ---------------------------------------------------------------------------
+const clientDir = process.env.STATIC_DIR
+  ? path.resolve(process.env.STATIC_DIR)
+  : path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../trails/dist/public");
+
+if (fs.existsSync(path.join(clientDir, "index.html"))) {
+  const indexHtml = path.join(clientDir, "index.html");
+  app.use(express.static(clientDir));
+  // SPA fallback: any GET that isn't an /api route and doesn't map to a real
+  // file returns index.html so client-side routes (/compare, …) resolve.
+  app.use((req, res, next) => {
+    if (req.method !== "GET" || req.path.startsWith("/api")) return next();
+    res.sendFile(indexHtml);
+  });
+  logger.info({ clientDir }, "Serving trails SPA (single-origin)");
+} else {
+  logger.warn({ clientDir }, "No client build found — serving API only");
+}
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 

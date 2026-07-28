@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      - name: Test (api-server)
+        run: pnpm --filter @workspace/api-server test
+
+      # Build both halves exactly as Railway does, so a broken build fails the PR
+      # rather than the deploy. PORT/BASE_PATH are required by vite.config.
+      - name: Build
+        run: NODE_ENV=production PORT=3000 BASE_PATH=/ pnpm --filter @workspace/trails build && pnpm --filter @workspace/api-server build

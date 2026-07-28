@@ -1,0 +1,29 @@
+# Railway deployment config (config-as-code).
+# See DEPLOY.md for the full setup checklist and the env vars to add in Railway.
+#
+# Topology: ONE service. The API server (Express) also serves the built trails
+# SPA from artifacts/trails/dist/public, so the UI and /api share one origin —
+# which is what Clerk's same-origin proxy needs.
+
+[build]
+builder = "NIXPACKS"
+# Nixpacks auto-runs `pnpm install --frozen-lockfile` first (dev deps included —
+# esbuild/vite/drizzle-kit are needed to build). Then we build both halves:
+#   1. the trails SPA (PORT/BASE_PATH are required by vite.config even for a
+#      static build; PORT's value is irrelevant here — nothing listens).
+#   2. the API server bundle → artifacts/api-server/dist/index.mjs
+# NODE_ENV is set inline (NOT as a global variable) so it can't prune dev deps
+# at install time.
+buildCommand = "NODE_ENV=production PORT=3000 BASE_PATH=/ pnpm --filter @workspace/trails build && pnpm --filter @workspace/api-server build"
+
+[deploy]
+# Runs on every deploy, before the new version goes live: apply the Drizzle
+# schema (this repo is push-based, no migration files — mirrors the old Replit
+# post-merge hook). Needs DATABASE_URL, which Railway's Postgres plugin injects.
+preDeployCommand = "pnpm --filter @workspace/db run push"
+# Railway injects PORT at runtime. NODE_ENV=production activates the Clerk proxy.
+startCommand = "NODE_ENV=production node artifacts/api-server/dist/index.mjs"
+healthcheckPath = "/"
+healthcheckTimeout = 120
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3

@@ -107,6 +107,21 @@ export async function recommend(opts: { stepId: number; userId: number }) {
     ? await enrichFromFocus(focus)
     : await enrichFromSeeds(seeds.map((s) => ({ artist: s.artist, title: s.title })));
   const similarArtistNames = enrichData.similarArtists.slice(0, 15).map((a) => a.name);
+  // Second-tier neighbours: less obvious than the well-trodden top-10 but still
+  // genuinely in this direction's space. Giving these to the LLM expands its
+  // vocabulary without pointing it at the most predictable names.
+  const adjacentArtistNames = enrichData.similarArtists.slice(15, 25).map((a) => a.name);
+
+  // Artists already recommended in any previous step of this dive. The LLM is
+  // instructed to avoid repeating them; we also hard-gate any that slip through.
+  const priorDiveRecs = await db
+    .select({ artist: recommendationsTable.artist })
+    .from(recommendationsTable)
+    .innerJoin(diveStepsTable, eq(recommendationsTable.diveStepId, diveStepsTable.id))
+    .where(eq(diveStepsTable.diveId, step.diveId))
+    .catch(() => []);
+  const priorDiveArtists = [...new Set(priorDiveRecs.map((r) => r.artist))];
+  const priorDiveArtistSet = new Set(priorDiveRecs.map((r) => r.artist.toLowerCase()));
 
   const chosenDir = directionsJson?.directions?.find((d) => d.label === directionLabel);
   const directionRationale = chosenDir?.rationale ?? "Explore new territory.";
@@ -159,6 +174,8 @@ export async function recommend(opts: { stepId: number; userId: number }) {
           directionLabel,
           directionRationale,
           similarArtists: similarArtistNames,
+          adjacentArtists: adjacentArtistNames,
+          priorDiveArtists,
           eloTop: eloTopFormatted,
           count: MAX_CANDIDATES,
           broader,
@@ -197,6 +214,20 @@ export async function recommend(opts: { stepId: number; userId: number }) {
         // Similarity-gate rejections and timeout errors are both logged inside musicbrainz.ts
         continue;
       }
+
+      // ---- Change 2: hard artist-level diversity gate ----
+      // Even if the LLM ignored the prompt instruction, we never let the same
+      // artist appear twice within one step or carry over from a prior step.
+      const artistKey = resolved.artist.toLowerCase();
+      if (priorDiveArtistSet.has(artistKey)) {
+        logger.info({ stepId, artist: resolved.artist }, "Diversity gate: artist already in a prior dive step — skipping");
+        continue;
+      }
+      if (roundVerified.some((r) => r.artist.toLowerCase() === artistKey)) {
+        logger.info({ stepId, artist: resolved.artist }, "Diversity gate: artist already in this round — skipping");
+        continue;
+      }
+
       // Use the candidate's declared type (always "track" — locked by LLM schema),
       // not resolved.type which is an internal MB entity kind ("recording",
       // "release-group") and can be stale if the mbid was cached under a

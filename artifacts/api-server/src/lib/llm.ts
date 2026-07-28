@@ -104,17 +104,21 @@ export async function propose(opts: {
   directionLabel: string;
   directionRationale: string;
   similarArtists: string[];
+  adjacentArtists?: string[];
+  priorDiveArtists?: string[];
   eloTop?: string[];
   count?: number;
   broader?: boolean;
 }): Promise<Candidate[]> {
-  const { portraitText, recap, directionLabel, directionRationale, similarArtists, eloTop = [], count = 5, broader = false } = opts;
+  const { portraitText, recap, directionLabel, directionRationale, similarArtists, adjacentArtists = [], priorDiveArtists = [], eloTop = [], count = 5, broader = false } = opts;
 
   const eloBlock = eloTop.length > 0
     ? `\n\nThe user's highest-ranked tracks by head-to-head comparison (their taste's center of gravity — lean toward this sensibility and quality bar, but do NOT re-suggest these exact tracks):\n${eloTop.map((t) => `- ${t}`).join("\n")}`
     : "";
 
   const wellTroddenList = similarArtists.slice(0, 10).join(", ");
+  const priorDiveList = priorDiveArtists.join(", ");
+  const adjacentList = adjacentArtists.join(", ");
 
   const broaderHint = broader
     ? "\n- IMPORTANT: A previous attempt with obscure picks failed verification. Suggest LESS OBSCURE artists — prefer moderately well-known to widely known acts that are more likely to exist in music databases."
@@ -127,6 +131,9 @@ CRITICAL RULES:
 - Every candidate MUST be a specific individual track (song), never an album or EP title.
 - If you want to highlight an artist's album, pick the single best track from it instead.
 - The well-trodden artists are: ${wellTroddenList || "none identified"}. Steer AWAY from these for the main direction.
+- Artists already recommended in earlier steps of this dive (DO NOT use any of these — not even a different track by the same artist): ${priorDiveList || "none yet (this is the first step)"}.
+- Less-obvious neighbours to consider (second-tier adjacency — genuinely in this space but less mainstream than the well-trodden list; use these as a launchpad or reach further): ${adjacentList || "none available"}.
+- DIVERSITY: every candidate must be by a DIFFERENT artist. No two candidates from the same artist.
 - Include likely_known: "low" for genuinely obscure picks, "medium" for moderately known, "high" for widely known.
 - Generate ${count} candidates (we will validate and may need extras).${broaderHint}`;
 
@@ -139,7 +146,7 @@ ${recap || "(first dive — no recap yet)"}
 Chosen direction: "${directionLabel}"
 Direction rationale: ${directionRationale}${eloBlock}
 
-Generate ${count} individual track candidates that fit this direction and this user's taste. Each must be a specific song, not an album title. Steer away from the well-trodden artists.`;
+Generate ${count} individual track candidates that fit this direction and this user's taste. Each must be a specific song, not an album title. Every candidate must be by a different artist. Steer away from the well-trodden artists and any artist already used in this dive.`;
 
   const schema = {
     type: "object",

@@ -54,18 +54,35 @@ async function loadPairChoices(userId: number, seeds: typeof seedsTable.$inferSe
 }
 
 async function loadRecentRatings(userId: number, limit = 30) {
-  // Fetch recent taste_events of kind "rating" for this user, join to rec for track info
+  // Recent rating signal, newest first, from two sources:
+  //  - "rating"        — dive-track ratings (payload carries recId → look up the rec)
+  //  - "focus_rating"  — Discover & Rank stars (payload already carries title/artist)
+  // Both feed the portrait's texture read; their written notes are the richest signal.
   const events = await db
     .select()
     .from(tasteEventsTable)
     .where(eq(tasteEventsTable.userId, userId))
     .orderBy(desc(tasteEventsTable.ts))
-    .limit(limit * 3); // overfetch, filter below
+    .limit(limit * 4); // overfetch, filter below
 
-  const ratingEvents = events.filter((e) => e.kind === "rating").slice(0, limit);
+  const ratingEvents = events
+    .filter((e) => e.kind === "rating" || e.kind === "focus_rating")
+    .slice(0, limit);
 
   const results: Array<{ title: string; artist: string; listenState: string; score: number | null; reviewText?: string | null }> = [];
   for (const ev of ratingEvents) {
+    if (ev.kind === "focus_rating") {
+      const p = ev.payloadJson as { title?: string; artist?: string; listenState?: string; score?: number | null; reviewText?: string | null };
+      if (!p.title || !p.artist || !p.listenState) continue;
+      results.push({
+        title: p.title,
+        artist: p.artist,
+        listenState: p.listenState,
+        score: p.score != null ? Number(p.score) : null,
+        reviewText: p.reviewText ?? null,
+      });
+      continue;
+    }
     const payload = ev.payloadJson as { recId?: number; listenState?: string; score?: number | null; reviewText?: string | null };
     if (!payload.recId || !payload.listenState) continue;
     const [rec] = await db

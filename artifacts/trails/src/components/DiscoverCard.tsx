@@ -34,7 +34,8 @@ export function DiscoverCard({ userId }: { userId: number }) {
   const [infoLoading, setInfoLoading] = useState(false);
   // undefined = not yet fetched, null = no preview available, string = ready URL
   const [previewUrl, setPreviewUrl]   = useState<string | null | undefined>(undefined);
-  const servedRef = useRef<string[]>([]);
+  const servedRef        = useRef<string[]>([]);
+  const servedArtistsRef = useRef<string[]>([]);
 
   const fetchArtwork = useCallback(async (artist: string, title: string) => {
     try {
@@ -80,6 +81,7 @@ export function DiscoverCard({ userId }: { userId: number }) {
       const params = new URLSearchParams({
         userId: String(userId),
         exclude: servedRef.current.slice(-40).join(','),
+        excludeArtists: servedArtistsRef.current.slice(-20).join(','),
       });
       const r = await fetch(`${basePath}/api/discover/track?${params}`);
       const d = await r.json() as { track: DiscoverTrack | null };
@@ -87,6 +89,7 @@ export function DiscoverCard({ userId }: { userId: number }) {
       else {
         setTrack(d.track);
         servedRef.current.push(`${d.track.title}|${d.track.artist}`.toLowerCase());
+        servedArtistsRef.current.push(d.track.artist.toLowerCase());
         setEmpty(false);
         if (d.track.artworkUrl) setArtwork(d.track.artworkUrl);
         else fetchArtwork(d.track.artist, d.track.title);

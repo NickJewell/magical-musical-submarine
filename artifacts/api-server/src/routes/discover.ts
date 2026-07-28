@@ -57,6 +57,7 @@ async function tryCF(
   ranked: Awaited<ReturnType<typeof getRankedTracks>>,
   seeds: Array<{ title: string; artist: string }>,
   excluded: Set<string>,
+  excludedArtists: Set<string>,
 ): Promise<DiscoverTrack | null> {
   const anchorTracks = [
     ...ranked.filter((t) => t.matches > 0).sort((a, b) => b.rating - a.rating),
@@ -65,15 +66,18 @@ async function tryCF(
   ];
   if (anchorTracks.length === 0) return null;
 
+  // Shuffle all anchors so we don't always query the same top tracks.
   const shuffled = anchorTracks
     .map((t) => ({ t, r: Math.random() }))
     .sort((a, b) => a.r - b.r)
     .map((x) => x.t)
-    .slice(0, 5);
+    .slice(0, 8); // wider anchor pool → more varied similar-track results
 
   const candidates = new Map<string, { title: string; artist: string; match: number }>();
   const add = (title: string, artist: string, match: number) => {
     if (!title || !artist) return;
+    // Artist-level exclusion: skip any artist already shown this session or in rankings.
+    if (excludedArtists.has(artist.toLowerCase())) return;
     const k = key(title, artist);
     if (excluded.has(k)) return;
     const cur = candidates.get(k);
@@ -89,7 +93,7 @@ async function tryCF(
     const simArtistLists = await Promise.all(
       shuffled.slice(0, 3).map((a) => lastfmSimilarArtists(a.artist).catch(() => [])),
     );
-    const artistNames = [...new Set(simArtistLists.flat().map((a) => a.name))].slice(0, 6);
+    const artistNames = [...new Set(simArtistLists.flat().map((a) => a.name))].slice(0, 8);
     const tops = await Promise.all(artistNames.map((n) => lastfmTopTrack(n).catch(() => null)));
     for (const top of tops) if (top) add(top.name, top.artist, 0.5);
   }
@@ -97,7 +101,9 @@ async function tryCF(
   if (candidates.size === 0) return null;
 
   const ordered = [...candidates.values()].sort((a, b) => b.match - a.match);
-  const pick = ordered[Math.floor(Math.random() * Math.min(5, ordered.length))];
+  // Pick randomly from the top 20 rather than top 5 — prevents the same handful
+  // of highest-match artists from monopolising every session.
+  const pick = ordered[Math.floor(Math.random() * Math.min(20, ordered.length))];
 
   // Synthetic MBID — stable enough for rankings dedup without a slow MB resolve
   const mbid = `lastfm:${pick.artist.toLowerCase().replace(/[^\w]/g, "-")}:${pick.title.toLowerCase().replace(/[^\w]/g, "-")}`;
@@ -133,6 +139,17 @@ router.get("/discover/track", async (req, res): Promise<void> => {
       excluded.add(k);
     }
 
+    // Artist-level exclusions: passed by the client as recently-seen artist names.
+    // Prevents the same artist from appearing in consecutive cards even for different tracks.
+    const excludeArtistsParam = typeof req.query.excludeArtists === "string" ? req.query.excludeArtists : "";
+    const excludedArtists = new Set(
+      excludeArtistsParam.split(",").map((x) => x.trim().toLowerCase()).filter(Boolean),
+    );
+    // Also exclude artists already in the user's ranked tracks so they can't
+    // reappear via a different track title.
+    for (const t of ranked) excludedArtists.add(t.artist.toLowerCase());
+    for (const s of seeds) excludedArtists.add(s.artist.toLowerCase());
+
     // spotify:* MBIDs in rankings = pool tracks already matched
     const matchedSpotifyIds = ranked
       .map((t) => t.mbid)
@@ -142,8 +159,8 @@ router.get("/discover/track", async (req, res): Promise<void> => {
     const preferPool = Math.random() < 0.6;
     const seedTracks = seeds.map((s) => ({ title: s.title, artist: s.artist }));
     const track = preferPool
-      ? (await tryPool(excluded, matchedSpotifyIds)) ?? (await tryCF(ranked, seedTracks, excluded))
-      : (await tryCF(ranked, seedTracks, excluded)) ?? (await tryPool(excluded, matchedSpotifyIds));
+      ? (await tryPool(excluded, matchedSpotifyIds)) ?? (await tryCF(ranked, seedTracks, excluded, excludedArtists))
+      : (await tryCF(ranked, seedTracks, excluded, excludedArtists)) ?? (await tryPool(excluded, matchedSpotifyIds));
 
     return { track: track ?? null };
   };

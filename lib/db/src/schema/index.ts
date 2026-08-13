@@ -11,3 +11,4 @@ export * from "./http_cache";
 export * from "./spotify";
 export * from "./canon";
 export * from "./elo";
+export * from "./taste_territories";

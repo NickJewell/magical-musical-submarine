@@ -1,8 +1,9 @@
 import { useState, useMemo, useCallback } from 'react';
+import { Link } from 'wouter';
 import { useQuery } from '@tanstack/react-query';
 import { useLocalUser } from '@/lib/useLocalUser';
 import {
-  Loader2, Star, Trophy, ArrowUp, ArrowDown, Swords, Radio,
+  Loader2, Star, Trophy, ArrowUp, ArrowDown, Swords, Radio, Map,
 } from 'lucide-react';
 import { InlinePlayer, type ResolvedLinks } from '@/components/InlinePlayer';
 import { DiveFromTrackButton } from '@/components/DiveFromTrackButton';
@@ -377,9 +378,18 @@ function RankingsContent({ userId }: { userId: number }) {
         <h1 className="text-sm font-mono text-primary uppercase tracking-widest flex items-center gap-2">
           <Trophy className="w-4 h-4" /> Rankings
         </h1>
-        <span className="text-[10px] font-mono text-muted-foreground/40 uppercase">
-          {tracks.length} tracks · {ranked} ranked
-        </span>
+        <div className="flex items-baseline gap-3">
+          <Link
+            href="/territories"
+            title="See your rankings as a map of taste territories"
+            className="flex items-center gap-1 text-[10px] font-mono text-muted-foreground/60 hover:text-primary uppercase tracking-widest transition-colors"
+          >
+            <Map className="w-3 h-3" /> Map
+          </Link>
+          <span className="text-[10px] font-mono text-muted-foreground/40 uppercase">
+            {tracks.length} tracks · {ranked} ranked
+          </span>
+        </div>
       </div>
 
       {/* Sort controls (column header) */}

@@ -213,6 +213,63 @@ export async function aggregateSimilarArtists(artists: string[]): Promise<Simila
     .map((a) => ({ name: a.name, match: a.match }));
 }
 
+// ---- Short editorial blurbs (artist bio + track wiki) ----
+
+/** Strip Last.fm's HTML, drop its "Read more on Last.fm" footer, cap word count. */
+function cleanBlurb(raw: string | undefined | null, maxWords = 200): string | null {
+  if (!raw) return null;
+  let text = raw
+    .replace(/<a\b[^>]*>Read more on Last\.fm<\/a>/gi, "")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&nbsp;/g, " ")
+    .replace(/\s*Read more on Last\.fm.*$/is, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!text) return null;
+  const words = text.split(" ");
+  if (words.length > maxWords) text = words.slice(0, maxWords).join(" ") + "…";
+  return text;
+}
+
+/** A ~100-word artist bio from Last.fm's artist.getInfo. Null when unavailable. */
+export async function lastfmArtistBlurb(artist: string): Promise<string | null> {
+  if (!LASTFM_KEY) return null;
+  const url =
+    `${LASTFM_BASE}/?method=artist.getinfo&artist=${encodeURIComponent(artist)}` +
+    `&api_key=${LASTFM_KEY}&format=json&autocorrect=1`;
+  try {
+    interface Resp { artist?: { bio?: { summary?: string } } }
+    const data = await httpGet<Resp>(url, {
+      cacheKey: `lfm:artistinfo:${artist.toLowerCase()}`,
+      cacheTtlMs: 30 * 24 * 60 * 60 * 1000,
+    });
+    return cleanBlurb(data.artist?.bio?.summary);
+  } catch (err) {
+    logger.warn({ err, artist }, "Last.fm artist.getInfo failed");
+    return null;
+  }
+}
+
+/** A short track blurb from Last.fm's track.getInfo wiki. Null when unavailable. */
+export async function lastfmTrackBlurb(artist: string, track: string): Promise<string | null> {
+  if (!LASTFM_KEY) return null;
+  const url =
+    `${LASTFM_BASE}/?method=track.getinfo&artist=${encodeURIComponent(artist)}` +
+    `&track=${encodeURIComponent(track)}&api_key=${LASTFM_KEY}&format=json&autocorrect=1`;
+  try {
+    interface Resp { track?: { wiki?: { summary?: string } } }
+    const data = await httpGet<Resp>(url, {
+      cacheKey: `lfm:trackinfo:${artist.toLowerCase()}:${track.toLowerCase()}`,
+      cacheTtlMs: 30 * 24 * 60 * 60 * 1000,
+    });
+    return cleanBlurb(data.track?.wiki?.summary);
+  } catch (err) {
+    logger.warn({ err, artist, track }, "Last.fm track.getInfo failed");
+    return null;
+  }
+}
+
 // ---- Public API ----
 
 export interface EnrichResult {

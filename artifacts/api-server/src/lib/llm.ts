@@ -105,13 +105,18 @@ export async function propose(opts: {
   directionRationale: string;
   similarArtists: string[];
   eloTop?: string[];
+  avoid?: string[];
   count?: number;
   broader?: boolean;
 }): Promise<Candidate[]> {
-  const { portraitText, recap, directionLabel, directionRationale, similarArtists, eloTop = [], count = 5, broader = false } = opts;
+  const { portraitText, recap, directionLabel, directionRationale, similarArtists, eloTop = [], avoid = [], count = 5, broader = false } = opts;
 
   const eloBlock = eloTop.length > 0
     ? `\n\nThe user's highest-ranked tracks by head-to-head comparison (their taste's center of gravity — lean toward this sensibility and quality bar, but do NOT re-suggest these exact tracks):\n${eloTop.map((t) => `- ${t}`).join("\n")}`
+    : "";
+
+  const avoidBlock = avoid.length > 0
+    ? `\n\nThe user has ALREADY rated these tracks — never suggest any of them again (this is discovery; repeats are wasted):\n${avoid.map((t) => `- ${t}`).join("\n")}`
     : "";
 
   const wellTroddenList = similarArtists.slice(0, 10).join(", ");
@@ -127,6 +132,7 @@ CRITICAL RULES:
 - Every candidate MUST be a specific individual track (song), never an album or EP title.
 - If you want to highlight an artist's album, pick the single best track from it instead.
 - The well-trodden artists are: ${wellTroddenList || "none identified"}. Steer AWAY from these for the main direction.
+- NEVER suggest a track the user has already rated (listed below, if any).
 - Include likely_known: "low" for genuinely obscure picks, "medium" for moderately known, "high" for widely known.
 - Generate ${count} candidates (we will validate and may need extras).${broaderHint}`;
 
@@ -137,9 +143,9 @@ Recent dive recap:
 ${recap || "(first dive — no recap yet)"}
 
 Chosen direction: "${directionLabel}"
-Direction rationale: ${directionRationale}${eloBlock}
+Direction rationale: ${directionRationale}${eloBlock}${avoidBlock}
 
-Generate ${count} individual track candidates that fit this direction and this user's taste. Each must be a specific song, not an album title. Steer away from the well-trodden artists.`;
+Generate ${count} individual track candidates that fit this direction and this user's taste. Each must be a specific song, not an album title. Steer away from the well-trodden artists, and never repeat a track the user has already rated.`;
 
   const schema = {
     type: "object",

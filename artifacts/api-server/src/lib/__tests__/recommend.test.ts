@@ -224,12 +224,22 @@ function buildInsertChain(returnedRows: unknown[]) {
  *  3. load seeds           → mockSeeds   awaited directly
  *  4. load portraits       → [portrait]  ends with .orderBy().limit(1)
  *  5. load prior ratings   → []          ends with .limit(20).catch()
- *  6. ELO signal           → []          getEloSignal() trackElo query
- *  7. well-trodden dedup   → []          buildWellTroddenRec's priorWt query,
+ *  6. rated recs index     → []          loadRatedTrackIndex ratings query,
+ *                                         ends with .innerJoin().where().catch()
+ *  7. rated focus index    → []          loadRatedTrackIndex focus query,
+ *                                         ends with .where().catch()
+ *  8. ELO signal           → []          getEloSignal() trackElo query
+ *  9. well-trodden dedup   → []          buildWellTroddenRec's priorWt query,
  *                                         ends with .innerJoin().where().catch()
  */
-function setupDbSelectSequence(overrides?: { existingRecs?: unknown[] }) {
+function setupDbSelectSequence(overrides?: {
+  existingRecs?: unknown[];
+  ratedRecs?: unknown[];
+  ratedFocus?: unknown[];
+}) {
   const existing = overrides?.existingRecs ?? [];
+  const ratedRecs = overrides?.ratedRecs ?? [];
+  const ratedFocus = overrides?.ratedFocus ?? [];
   const dbMock = db as unknown as DbMock;
   dbMock.select
     .mockReturnValueOnce(buildSelectChain(existing))
@@ -237,6 +247,8 @@ function setupDbSelectSequence(overrides?: { existingRecs?: unknown[] }) {
     .mockReturnValueOnce(buildSelectChain(mockSeeds))
     .mockReturnValueOnce(buildSelectChain(mockPortraits))
     .mockReturnValueOnce(buildSelectChain([]))
+    .mockReturnValueOnce(buildSelectChain(ratedRecs))  // rated recs index
+    .mockReturnValueOnce(buildSelectChain(ratedFocus)) // rated focus index
     .mockReturnValueOnce(buildSelectChain([]))
     .mockReturnValueOnce(buildSelectChain([]));
 }
@@ -333,6 +345,57 @@ describe("recommend() pipeline", () => {
       const arms = result.map((r) => r.arm);
       expect(arms.filter((a) => a === "llm")).toHaveLength(3);
       expect(arms.filter((a) => a === "well_trodden")).toHaveLength(1);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Scenario 1c: Already-rated tracks are excluded from a dive
+  // -------------------------------------------------------------------------
+  describe("excludes tracks the user has already rated", () => {
+    it("drops an already-rated proposal — never resolves it, never returns it", async () => {
+      // The user already rated "Karma Police" on a past dive.
+      setupDbSelectSequence({
+        ratedRecs: [{ mbid: "mbid-kp", title: "Karma Police", artist: "Radiohead" }],
+      });
+      setupEnrich();
+      setupLinks();
+      setupNarrate();
+
+      const proposals = [
+        mkProposal("Karma Police", "Radiohead"),    // already rated → must be dropped
+        mkProposal("Exit Music", "Radiohead"),
+        mkProposal("Paranoid Android", "Radiohead"),
+      ];
+      vi.mocked(propose).mockResolvedValue(proposals);
+
+      // Karma Police is filtered BEFORE resolve, so resolve() is only called for
+      // the two fresh tracks and then the well-trodden pick.
+      vi.mocked(resolve)
+        .mockResolvedValueOnce(mkResolved("Exit Music", "Radiohead", "mbid-em"))
+        .mockResolvedValueOnce(mkResolved("Paranoid Android", "Radiohead", "mbid-pa"))
+        .mockResolvedValueOnce(mkResolved("Fake Plastic Trees", "Radiohead", "mbid-fpt"));
+
+      setupDbInsert([
+        mkInserted("Exit Music", "Radiohead", "llm", "mbid-em"),
+        mkInserted("Paranoid Android", "Radiohead", "llm", "mbid-pa"),
+        mkInserted("Fake Plastic Trees", "Radiohead", "well_trodden", "mbid-fpt"),
+      ]);
+
+      const result = await recommend({ stepId: STEP_ID, userId: USER_ID });
+
+      // The rated track was never even resolved…
+      const resolvedTitles = vi.mocked(resolve).mock.calls.map(([c]) => (c as { title: string }).title);
+      expect(resolvedTitles).not.toContain("Karma Police");
+      // …and never appears in the dive.
+      expect(result.some((r) => r.title === "Karma Police")).toBe(false);
+      // Still a full dive: the two fresh LLM recs + the control arm.
+      expect(result).toHaveLength(3);
+      expect(result.filter((r) => r.arm === "llm")).toHaveLength(2);
+      expect(result.filter((r) => r.arm === "well_trodden")).toHaveLength(1);
+      // The already-rated track is also fed to propose() as an avoid hint.
+      expect(vi.mocked(propose).mock.calls[0][0]).toMatchObject({
+        avoid: ['"Karma Police" by Radiohead'],
+      });
     });
   });
 

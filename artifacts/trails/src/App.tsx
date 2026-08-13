@@ -17,6 +17,7 @@ import QueuePage from '@/pages/queue';
 import MetricsPage from '@/pages/metrics';
 import TimelinePage from '@/pages/timeline';
 import RankingsPage from '@/pages/rankings';
+import TerritoriesPage from '@/pages/territories';
 import ComparePage from '@/pages/compare';
 import FeedPage from '@/pages/feed';
 import SignInPage from '@/pages/sign-in';
@@ -128,6 +129,7 @@ function Router() {
         <Route path="/feed" component={FeedPage} />
         <Route path="/timeline" component={TimelinePage} />
         <Route path="/rankings" component={RankingsPage} />
+        <Route path="/territories" component={TerritoriesPage} />
         <Route path="/compare" component={ComparePage} />
         <Route component={NotFound} />
       </Switch>

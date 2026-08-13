@@ -1,8 +1,9 @@
 import { useState, useMemo, useCallback } from 'react';
+import { Link } from 'wouter';
 import { useQuery } from '@tanstack/react-query';
 import { useLocalUser } from '@/lib/useLocalUser';
 import {
-  Loader2, Star, Trophy, ArrowUp, ArrowDown, Swords, Radio, CloudDownload,
+  Loader2, Star, Trophy, ArrowUp, ArrowDown, Swords, Radio, CloudDownload, Map,
 } from 'lucide-react';
 import { InlinePlayer, type ResolvedLinks } from '@/components/InlinePlayer';
 import { DiveFromTrackButton } from '@/components/DiveFromTrackButton';
@@ -394,6 +395,13 @@ function RankingsContent({ userId }: { userId: number }) {
           >
             <CloudDownload className="w-3 h-3" /> Import
           </button>
+          <Link
+            href="/territories"
+            title="See your rankings as a map of taste territories"
+            className="flex items-center gap-1 text-[10px] font-mono text-muted-foreground/60 hover:text-primary uppercase tracking-widest transition-colors"
+          >
+            <Map className="w-3 h-3" /> Map
+          </Link>
           <span className="text-[10px] font-mono text-muted-foreground/40 uppercase">
             {tracks.length} tracks · {ranked} ranked
           </span>

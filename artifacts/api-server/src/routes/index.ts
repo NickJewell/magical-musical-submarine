@@ -18,6 +18,7 @@ import rankingsRouter from "./rankings";
 import compareRouter from "./compare";
 import discoverRouter from "./discover";
 import importHistoryRouter from "./importHistory";
+import territoriesRouter from "./territories";
 
 const router: IRouter = Router();
 
@@ -40,5 +41,6 @@ router.use(rankingsRouter);
 router.use(compareRouter);
 router.use(discoverRouter);
 router.use(importHistoryRouter);
+router.use(territoriesRouter);
 
 export default router;

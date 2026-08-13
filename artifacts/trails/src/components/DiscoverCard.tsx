@@ -10,6 +10,8 @@ interface DiscoverTrack {
   title: string;
   artist: string;
   year: number | null;
+  spotifyId: string | null;
+  artworkUrl: string | null;
 }
 
 /**
@@ -30,10 +32,15 @@ export function DiscoverCard({ userId }: { userId: number }) {
   const [loadingLinks, setLoadingLinks] = useState(false);
   const [playerActive, setPlayerActive] = useState(false);
 
+  // Info bubbles: artist + song blurbs, fetched when the preview is opened.
+  const [info, setInfo] = useState<{ artist: string | null; track: string | null } | null>(null);
+  const [infoLoading, setInfoLoading] = useState(false);
+
   const loadNext = useCallback(async () => {
     setLoading(true);
     setLinks(null);
     setPlayerActive(false);
+    setInfo(null);
     try {
       const params = new URLSearchParams({
         userId: String(userId),
@@ -43,9 +50,20 @@ export function DiscoverCard({ userId }: { userId: number }) {
       const d = await r.json();
       if (!d.track) { setTrack(null); setEmpty(true); }
       else {
-        setTrack(d.track);
-        servedRef.current.push(`${d.track.title}|${d.track.artist}`.toLowerCase());
+        const t = d.track as DiscoverTrack;
+        setTrack(t);
+        servedRef.current.push(`${t.title}|${t.artist}`.toLowerCase());
         setEmpty(false);
+        // Pool tracks carry a Spotify id → seed the player for an instant preview.
+        if (t.spotifyId) {
+          setLinks({
+            spotify: `https://open.spotify.com/track/${t.spotifyId}`,
+            youtube: null,
+            spotifyTrackId: t.spotifyId,
+            youtubeVideoId: null,
+            deezerId: null,
+          });
+        }
       }
     } catch {
       setEmpty(true);
@@ -71,6 +89,20 @@ export function DiscoverCard({ userId }: { userId: number }) {
     }
   }, [track, links, loadingLinks]);
 
+  const loadInfo = useCallback(async () => {
+    if (!track || info || infoLoading) return;
+    setInfoLoading(true);
+    try {
+      const params = new URLSearchParams({ artist: track.artist, title: track.title });
+      const r = await fetch(`${basePath}/api/discover/info?${params}`);
+      setInfo(r.ok ? await r.json() : { artist: null, track: null });
+    } catch {
+      setInfo({ artist: null, track: null });
+    } finally {
+      setInfoLoading(false);
+    }
+  }, [track, info, infoLoading]);
+
   const rate = async (score: number) => {
     if (!track || saving !== null) return;
     setSaving(score);
@@ -93,7 +125,7 @@ export function DiscoverCard({ userId }: { userId: number }) {
 
   const skip = () => { if (saving === null) { setSaving('skip'); loadNext().finally(() => setSaving(null)); } };
 
-  const artwork = (links as (ResolvedLinks & { artworkUrl?: string | null }) | null)?.artworkUrl ?? null;
+  const artwork = track?.artworkUrl ?? (links as (ResolvedLinks & { artworkUrl?: string | null }) | null)?.artworkUrl ?? null;
 
   return (
     <div className="rounded-2xl border border-primary/15 bg-secondary/10 p-5 space-y-4">
@@ -146,8 +178,20 @@ export function DiscoverCard({ userId }: { userId: number }) {
             isLoadingLinks={loadingLinks}
             onNeedLinks={handleNeedLinks}
             activeRecId={playerActive ? 0 : null}
-            onActivate={(id) => { setPlayerActive(id !== null); if (id !== null) handleNeedLinks(); }}
+            onActivate={(id) => {
+              setPlayerActive(id !== null);
+              if (id !== null) { handleNeedLinks(); loadInfo(); }
+            }}
           />
+
+          {/* Info bubbles — appear when the preview is open (side-by-side on wider
+              screens, stacked on mobile) */}
+          {playerActive && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 animate-in fade-in slide-in-from-top-1 duration-200">
+              <InfoBubble label="Artist" heading={track.artist} text={info?.artist ?? null} loading={infoLoading && !info} />
+              <InfoBubble label="Song" heading={track.title} text={info?.track ?? null} loading={infoLoading && !info} />
+            </div>
+          )}
 
           {/* Rate → adds to rankings and advances */}
           <div className="flex items-center justify-between pt-1">
@@ -178,6 +222,27 @@ export function DiscoverCard({ userId }: { userId: number }) {
             </button>
           </div>
         </>
+      )}
+    </div>
+  );
+}
+
+function InfoBubble({
+  label, heading, text, loading,
+}: { label: string; heading: string; text: string | null; loading: boolean }) {
+  return (
+    <div className="rounded-xl border border-border/30 bg-secondary/20 p-3">
+      <p className="text-[9px] font-mono text-primary/60 uppercase tracking-widest mb-1">{label}</p>
+      <p className="text-xs font-medium text-foreground/90 truncate mb-1.5">{heading}</p>
+      {loading ? (
+        <div className="flex items-center gap-1.5 text-muted-foreground/40">
+          <Loader2 className="w-3 h-3 animate-spin" />
+          <span className="text-[10px] font-mono uppercase tracking-wide">Reading up…</span>
+        </div>
+      ) : text ? (
+        <p className="text-[11px] leading-relaxed text-muted-foreground max-h-36 overflow-y-auto">{text}</p>
+      ) : (
+        <p className="text-[11px] italic text-muted-foreground/40">No write-up found.</p>
       )}
     </div>
   );

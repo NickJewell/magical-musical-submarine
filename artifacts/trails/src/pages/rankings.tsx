@@ -3,10 +3,11 @@ import { Link } from 'wouter';
 import { useQuery } from '@tanstack/react-query';
 import { useLocalUser } from '@/lib/useLocalUser';
 import {
-  Loader2, Star, Trophy, ArrowUp, ArrowDown, Swords, Radio, Map,
+  Loader2, Star, Trophy, ArrowUp, ArrowDown, Swords, Radio, CloudDownload, Map,
 } from 'lucide-react';
 import { InlinePlayer, type ResolvedLinks } from '@/components/InlinePlayer';
 import { DiveFromTrackButton } from '@/components/DiveFromTrackButton';
+import { ImportHistoryDialog } from '@/components/ImportHistoryDialog';
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
 
@@ -286,6 +287,7 @@ function RankingsContent({ userId }: { userId: number }) {
   const [sortKey, setSortKey] = useState<SortKey>('stars');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [activeIdx, setActiveIdx] = useState<number | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
   // Local overrides for stars the user adjusts, so the table updates without a refetch.
   const [starOverrides, setStarOverrides] = useState<Record<string, number>>({});
 
@@ -362,9 +364,16 @@ function RankingsContent({ userId }: { userId: number }) {
         <p className="text-sm text-muted-foreground max-w-xs">
           Rate a few tracks and pit some against each other — they'll show up here with stars and ELO.
         </p>
-        <a href={`${basePath}/`} className="text-xs font-mono text-primary uppercase tracking-widest hover:underline mt-2">
-          Start diving →
+        <button
+          onClick={() => setImportOpen(true)}
+          className="flex items-center gap-1.5 text-xs font-mono text-primary uppercase tracking-widest hover:underline mt-2"
+        >
+          <CloudDownload className="w-3.5 h-3.5" /> Import your listening history
+        </button>
+        <a href={`${basePath}/`} className="text-xs font-mono text-muted-foreground/60 uppercase tracking-widest hover:underline">
+          Or start diving →
         </a>
+        {importOpen && <ImportHistoryDialog userId={userId} onClose={() => setImportOpen(false)} />}
       </div>
     );
   }
@@ -379,6 +388,13 @@ function RankingsContent({ userId }: { userId: number }) {
           <Trophy className="w-4 h-4" /> Rankings
         </h1>
         <div className="flex items-baseline gap-3">
+          <button
+            onClick={() => setImportOpen(true)}
+            title="Import your listening history from Last.fm"
+            className="flex items-center gap-1 text-[10px] font-mono text-muted-foreground/60 hover:text-primary uppercase tracking-widest transition-colors"
+          >
+            <CloudDownload className="w-3 h-3" /> Import
+          </button>
           <Link
             href="/territories"
             title="See your rankings as a map of taste territories"
@@ -425,6 +441,8 @@ function RankingsContent({ userId }: { userId: number }) {
           ELO moves when you compare tracks head-to-head. Tap a star to adjust.
         </p>
       </div>
+
+      {importOpen && <ImportHistoryDialog userId={userId} onClose={() => setImportOpen(false)} />}
     </div>
   );
 }

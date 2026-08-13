@@ -17,6 +17,7 @@ import eloRouter from "./elo";
 import rankingsRouter from "./rankings";
 import compareRouter from "./compare";
 import discoverRouter from "./discover";
+import importHistoryRouter from "./importHistory";
 
 const router: IRouter = Router();
 
@@ -38,5 +39,6 @@ router.use(eloRouter);
 router.use(rankingsRouter);
 router.use(compareRouter);
 router.use(discoverRouter);
+router.use(importHistoryRouter);
 
 export default router;

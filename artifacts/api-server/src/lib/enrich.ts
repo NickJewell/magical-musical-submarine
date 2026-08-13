@@ -115,6 +115,36 @@ export async function lastfmTagTopArtists(tag: string): Promise<SimilarArtist[]>
   }
 }
 
+export interface ArtistTag {
+  name: string;   // lowercase
+  weight: number; // 0-100, Last.fm's relative weight
+}
+
+/** An artist's top genre-ish tags — the raw material for the taste map. */
+export async function lastfmArtistTopTags(artist: string): Promise<ArtistTag[]> {
+  if (!LASTFM_KEY) return [];
+  const url =
+    `${LASTFM_BASE}/?method=artist.gettoptags&artist=${encodeURIComponent(artist)}` +
+    `&api_key=${LASTFM_KEY}&format=json&autocorrect=1`;
+  try {
+    interface LFMTagsResp {
+      toptags?: { tag?: Array<{ name: string; count: number }> };
+    }
+    const data = await httpGet<LFMTagsResp>(url, {
+      // Artist tags are very stable — cache for a month.
+      cacheKey: `lfm:artisttags:${artist.toLowerCase()}`,
+      cacheTtlMs: 30 * 24 * 60 * 60 * 1000,
+    });
+    return (data.toptags?.tag ?? [])
+      .filter((t) => t.name && t.count > 0)
+      .slice(0, 12)
+      .map((t) => ({ name: t.name.toLowerCase().trim(), weight: t.count }));
+  } catch (err) {
+    logger.warn({ err, artist }, "Last.fm artist.gettoptags failed");
+    return [];
+  }
+}
+
 // ---- ListenBrainz fallback ----
 
 async function lbSimilarArtists(artistMbid: string): Promise<SimilarArtist[]> {

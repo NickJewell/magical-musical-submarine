@@ -512,6 +512,110 @@ Banned on sight: any ELO number, rating value, or score; "head-to-head," "crushe
   return portrait.trim();
 }
 
+// ---- Taste territories (naming pass) ----
+
+export interface TerritoryNaming {
+  territories: Array<{ key: string; name: string; blurb: string }>;
+  beyond: Array<{ name: string; blurb: string; tracks: Array<{ title: string; artist: string }> }>;
+}
+
+/**
+ * Name the clustered territories of a listener's taste map and suggest the
+ * unexplored regions beside them. One call for the whole map. The clusters
+ * arrive with a PRIVATE qualitative affinity label (never numbers), and the
+ * output must stay number-free — territories are textures, not leaderboards.
+ * Uses the music-appreciation house style (see .claude/skills/music-appreciation).
+ */
+export async function nameTerritories(opts: {
+  clusters: Array<{ key: string; tag: string; artists: string[]; tracks: string[]; affinity: string }>;
+}): Promise<TerritoryNaming> {
+  const { clusters } = opts;
+
+  const clusterBlock = clusters
+    .map((c) =>
+      `[${c.key}] seed tag: "${c.tag}"\n` +
+      `  artists: ${c.artists.join(", ")}\n` +
+      `  tracks: ${c.tracks.join("; ")}\n` +
+      `  standing (PRIVATE — never quote or paraphrase this label): ${c.affinity}`)
+    .join("\n\n");
+
+  const systemPrompt = `You are a music critic drawing the map of one listener's taste. Each cluster below is a real territory they occupy — a scene or texture their ranked tracks keep landing in. Your job: NAME each territory and give it one line, then name what lies just beyond the map.
+
+For each territory:
+- name: a coinage a sharp critic would use for this exact neighbourhood — 2-4 words, specific enough that it couldn't title a different cluster. Build on the seed tag but transcend it: not "indie rock" but the particular corner of it these artists share. Never generic ("Great Songs", "Eclectic Mix"), never a bare genre name if the artists let you be sharper.
+- blurb: ONE sentence, under 28 words, naming the texture that unites these tracks — the production, tempo, register, or mood they share — with a note of what it does for this listener. Concrete, falsifiable, no lists.
+
+Then "beyond": exactly 2-3 adjacent territories they have NOT entered — real scenes/sounds that border what they already love. For each: a name (same coinage rules), a one-line dare (why their taste says they might love it — frame it as an open challenge, not a promise), and 2 real, well-known exemplar tracks (title + artist) that are true entry points to that scene. Only name tracks and artists you are certain exist.
+
+Rules:
+- Number-free everywhere. No scores, rankings, counts, percentages, or the word "data".
+- The PRIVATE standing labels tell you which territories are strongholds vs. kept at arm's length — let that colour the writing, never state it outright.
+- Banned on sight: "sonic", "soundscape", "eclectic", "genre-defying", "musical journey", "diverse", "a masterclass in", "whether it's X or Y", "you're in for a treat".
+- Output ONLY valid JSON matching the schema.`;
+
+  const userPrompt = `The listener's territories:\n\n${clusterBlock}\n\nName each territory (return every key exactly once) and chart 2-3 territories beyond the map.`;
+
+  const schema = {
+    type: "object",
+    properties: {
+      territories: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            key: { type: "string" },
+            name: { type: "string" },
+            blurb: { type: "string" },
+          },
+          required: ["key", "name", "blurb"],
+        },
+      },
+      beyond: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            name: { type: "string" },
+            blurb: { type: "string" },
+            tracks: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  title: { type: "string" },
+                  artist: { type: "string" },
+                },
+                required: ["title", "artist"],
+              },
+            },
+          },
+          required: ["name", "blurb", "tracks"],
+        },
+      },
+    },
+    required: ["territories", "beyond"],
+  };
+
+  const raw = await chat(PORTRAIT_MODEL, [
+    { role: "system", content: systemPrompt },
+    { role: "user", content: userPrompt },
+  ], {
+    type: "json_schema",
+    json_schema: { name: "territory_map", schema, strict: true },
+  });
+
+  try {
+    const parsed = JSON.parse(raw) as TerritoryNaming;
+    return {
+      territories: parsed.territories ?? [],
+      beyond: (parsed.beyond ?? []).map((b) => ({ ...b, tracks: (b.tracks ?? []).slice(0, 3) })),
+    };
+  } catch (err) {
+    logger.error({ err, raw }, "Failed to parse territory naming response");
+    return { territories: [], beyond: [] };
+  }
+}
+
 // ---- Tasting note (per dive leg) ----
 
 /**

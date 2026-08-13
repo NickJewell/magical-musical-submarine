@@ -9,8 +9,8 @@ import { pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
 export const discoverPoolTable = pgTable("discover_pool", {
   id: serial("id").primaryKey(),
   source: text("source").notNull().default("spotify_playlist"),
-  sourceId: text("source_id"),
-  spotifyId: text("spotify_id").notNull().unique(),
+  sourceId: text("source_id"), // e.g. the playlist id it came from
+  spotifyId: text("spotify_id").notNull().unique(), // de-dupe key
   title: text("title").notNull(),
   artist: text("artist").notNull(),
   album: text("album"),

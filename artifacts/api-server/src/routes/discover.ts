@@ -8,7 +8,11 @@ import {
 } from "../lib/enrich";
 import { fetchItunesData } from "../lib/links";
 import { bustCacheEntry } from "../lib/http";
+import { resolve } from "../lib/musicbrainz";
 import { logger } from "../lib/logger";
+import {
+  ensurePoolSeeded, ingestSpotifyPlaylist, DEFAULT_DISCOVER_PLAYLIST,
+} from "../lib/discoverPool";
 
 const router: IRouter = Router();
 
@@ -25,31 +29,39 @@ interface DiscoverTrack {
 }
 
 /**
- * Pick a random pool track the user hasn't matched yet. Pool tracks carry
- * Spotify artwork + id; they degrade gracefully to null if the table doesn't
- * exist yet (requires drizzle-kit push before first use).
+ * Pick a random pool track the user hasn't matched yet. A rated pool track lands
+ * in rankings under a `spotify:<id>` key, so we exclude exactly those at the SQL
+ * level — that keeps the pool in play (the 60/40 blend holds) until every last
+ * pool song has been matched, at which point this returns null and the feed goes
+ * CF-only. `matchedSpotifyIds` are the pool ids already in the user's rankings.
  */
 async function tryPool(excluded: Set<string>, matchedSpotifyIds: string[]): Promise<DiscoverTrack | null> {
+  // Guarded: the discover_pool table requires a drizzle-kit push; degrade to CF
+  // (via the null return) if it isn't there yet.
+  let sample: Array<typeof discoverPoolTable.$inferSelect>;
   try {
     const base = db.select().from(discoverPoolTable).$dynamic();
     const filtered = matchedSpotifyIds.length > 0
       ? base.where(notInArray(discoverPoolTable.spotifyId, matchedSpotifyIds))
       : base;
-    const sample = await filtered.orderBy(sql`random()`).limit(30);
-    const pick = sample.find((t) => !excluded.has(key(t.title, t.artist)));
-    if (!pick) return null;
-    return {
-      mbid: `spotify:${pick.spotifyId}`,
-      type: "track",
-      title: pick.title,
-      artist: pick.artist,
-      year: null,
-      spotifyId: pick.spotifyId,
-      artworkUrl: pick.artworkUrl,
-    };
+    sample = await filtered.orderBy(sql`random()`).limit(30);
   } catch {
-    return null; // table not yet migrated — fall through to CF
+    return null;
   }
+  // Second-pass JS filter for cross-source dupes (same title/artist rated via a
+  // different source) and the client's recently-served set.
+  const pick = sample.find((t) => !excluded.has(key(t.title, t.artist)));
+  if (!pick) return null;
+  return {
+    // A Spotify id makes a perfect stable de-dupe key for ratings too.
+    mbid: `spotify:${pick.spotifyId}`,
+    type: "track",
+    title: pick.title,
+    artist: pick.artist,
+    year: null,
+    spotifyId: pick.spotifyId,
+    artworkUrl: pick.artworkUrl,
+  };
 }
 
 /** Collaborative-filtering pick from Last.fm neighbours of the user's top tracks. */
@@ -59,7 +71,7 @@ async function tryCF(
   excluded: Set<string>,
   excludedArtists: Set<string>,
 ): Promise<DiscoverTrack | null> {
-  const anchorTracks = [
+  const anchorTracks: Array<{ title: string; artist: string }> = [
     ...ranked.filter((t) => t.matches > 0).sort((a, b) => b.rating - a.rating),
     ...ranked.filter((t) => t.matches === 0),
     ...seeds,
@@ -97,7 +109,6 @@ async function tryCF(
     const tops = await Promise.all(artistNames.map((n) => lastfmTopTrack(n).catch(() => null)));
     for (const top of tops) if (top) add(top.name, top.artist, 0.5);
   }
-
   if (candidates.size === 0) return null;
 
   const ordered = [...candidates.values()].sort((a, b) => b.match - a.match);
@@ -105,9 +116,19 @@ async function tryCF(
   // of highest-match artists from monopolising every session.
   const pick = ordered[Math.floor(Math.random() * Math.min(20, ordered.length))];
 
-  // Synthetic MBID — stable enough for rankings dedup without a slow MB resolve
-  const mbid = `lastfm:${pick.artist.toLowerCase().replace(/[^\w]/g, "-")}:${pick.title.toLowerCase().replace(/[^\w]/g, "-")}`;
-  return { mbid, type: "track", title: pick.title, artist: pick.artist, year: null, spotifyId: null, artworkUrl: null };
+  // Attempt a real MusicBrainz resolve for a stable MBID and release year.
+  // Fall back to a synthetic key so the CF path never blocks on a slow MB call.
+  let mbid = `lastfm:${pick.artist.toLowerCase().replace(/[^\w]/g, "-")}:${pick.title.toLowerCase().replace(/[^\w]/g, "-")}`;
+  let year: number | null = null;
+  try {
+    const resolved = await resolve(
+      { artist: pick.artist, title: pick.title, type: "track", likely_known: "medium" },
+      3_500,
+    );
+    if (resolved) { mbid = resolved.mbid; year = resolved.year ?? null; }
+  } catch { /* best-effort */ }
+
+  return { mbid, type: "track", title: pick.title, artist: pick.artist, year, spotifyId: null, artworkUrl: null };
 }
 
 /**
@@ -121,6 +142,8 @@ async function tryCF(
 router.get("/discover/track", async (req, res): Promise<void> => {
   const userId = Number(req.query.userId);
   if (!userId) { res.status(400).json({ error: "userId required" }); return; }
+
+  ensurePoolSeeded(); // fire-and-forget: self-populate the pool after deploy
 
   const WALL_MS = 2_800;
 
@@ -214,6 +237,24 @@ router.get("/discover/info", async (req, res): Promise<void> => {
   ]);
 
   res.json({ artist: artistBlurb, track: trackBlurb });
+});
+
+/** Extract a playlist id from a raw id or a full Spotify URL. */
+function parsePlaylistId(input: string): string {
+  const m = input.match(/playlist[/:]([A-Za-z0-9]+)/);
+  return m ? m[1] : input.trim();
+}
+
+/**
+ * POST /discover/ingest-playlist — pull a Spotify playlist into the pool
+ * (append + de-dupe by Spotify track id). Body: { playlistId? } — a raw id or a
+ * full playlist URL; defaults to the configured playlist.
+ */
+router.post("/discover/ingest-playlist", async (req, res): Promise<void> => {
+  const raw = (req.body as { playlistId?: unknown })?.playlistId;
+  const playlistId = typeof raw === "string" && raw.trim() ? parsePlaylistId(raw) : DEFAULT_DISCOVER_PLAYLIST;
+  const result = await ingestSpotifyPlaylist(playlistId);
+  res.json({ playlistId, ...result });
 });
 
 export default router;

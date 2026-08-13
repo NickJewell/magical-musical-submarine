@@ -136,6 +136,36 @@ export async function lastfmTagTopArtists(tag: string): Promise<SimilarArtist[]>
   }
 }
 
+export interface ArtistTag {
+  name: string;   // lowercase
+  weight: number; // 0-100, Last.fm's relative weight
+}
+
+/** An artist's top genre-ish tags — the raw material for the taste map. */
+export async function lastfmArtistTopTags(artist: string): Promise<ArtistTag[]> {
+  if (!LASTFM_KEY) return [];
+  const url =
+    `${LASTFM_BASE}/?method=artist.gettoptags&artist=${encodeURIComponent(artist)}` +
+    `&api_key=${LASTFM_KEY}&format=json&autocorrect=1`;
+  try {
+    interface LFMTagsResp {
+      toptags?: { tag?: Array<{ name: string; count: number }> };
+    }
+    const data = await httpGet<LFMTagsResp>(url, {
+      // Artist tags are very stable — cache for a month.
+      cacheKey: `lfm:artisttags:${artist.toLowerCase()}`,
+      cacheTtlMs: 30 * 24 * 60 * 60 * 1000,
+    });
+    return (data.toptags?.tag ?? [])
+      .filter((t) => t.name && t.count > 0)
+      .slice(0, 12)
+      .map((t) => ({ name: t.name.toLowerCase().trim(), weight: t.count }));
+  } catch (err) {
+    logger.warn({ err, artist }, "Last.fm artist.gettoptags failed");
+    return [];
+  }
+}
+
 // ---- ListenBrainz fallback ----
 
 async function lbSimilarArtists(artistMbid: string): Promise<SimilarArtist[]> {
@@ -206,10 +236,10 @@ export async function aggregateSimilarArtists(artists: string[]): Promise<Simila
 
 // ---- Short editorial blurbs (artist bio + track wiki) ----
 
-/** Strip Last.fm HTML, drop the "Read more on Last.fm" footer, cap word count. */
-function cleanBlurb(raw: string | undefined | null): string | null {
+/** Strip Last.fm's HTML, drop its "Read more on Last.fm" footer, cap word count. */
+function cleanBlurb(raw: string | undefined | null, maxWords = 200): string | null {
   if (!raw) return null;
-  const text = raw
+  let text = raw
     .replace(/<a\b[^>]*>Read more on Last\.fm<\/a>/gi, "")
     .replace(/<[^>]+>/g, "")
     .replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;/g, "'")
@@ -218,7 +248,10 @@ function cleanBlurb(raw: string | undefined | null): string | null {
     .replace(/\s*User-contributed text is available under.*$/is, "")
     .replace(/\s+/g, " ")
     .trim();
-  return text || null;
+  if (!text) return null;
+  const words = text.split(" ");
+  if (words.length > maxWords) text = words.slice(0, maxWords).join(" ") + "…";
+  return text;
 }
 
 /** A ~200-word artist bio from Last.fm's artist.getInfo. Null when unavailable. */

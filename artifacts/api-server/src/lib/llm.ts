@@ -107,13 +107,18 @@ export async function propose(opts: {
   adjacentArtists?: string[];
   priorDiveArtists?: string[];
   eloTop?: string[];
+  avoid?: string[];
   count?: number;
   broader?: boolean;
 }): Promise<Candidate[]> {
-  const { portraitText, recap, directionLabel, directionRationale, similarArtists, adjacentArtists = [], priorDiveArtists = [], eloTop = [], count = 5, broader = false } = opts;
+  const { portraitText, recap, directionLabel, directionRationale, similarArtists, adjacentArtists = [], priorDiveArtists = [], eloTop = [], avoid = [], count = 5, broader = false } = opts;
 
   const eloBlock = eloTop.length > 0
     ? `\n\nThe user's highest-ranked tracks by head-to-head comparison (their taste's center of gravity — lean toward this sensibility and quality bar, but do NOT re-suggest these exact tracks):\n${eloTop.map((t) => `- ${t}`).join("\n")}`
+    : "";
+
+  const avoidBlock = avoid.length > 0
+    ? `\n\nThe user has ALREADY rated these tracks — never suggest any of them again (this is discovery; repeats are wasted):\n${avoid.map((t) => `- ${t}`).join("\n")}`
     : "";
 
   const wellTroddenList = similarArtists.slice(0, 10).join(", ");
@@ -134,6 +139,7 @@ CRITICAL RULES:
 - Artists already recommended in earlier steps of this dive (DO NOT use any of these — not even a different track by the same artist): ${priorDiveList || "none yet (this is the first step)"}.
 - Less-obvious neighbours to consider (second-tier adjacency — genuinely in this space but less mainstream than the well-trodden list; use these as a launchpad or reach further): ${adjacentList || "none available"}.
 - DIVERSITY: every candidate must be by a DIFFERENT artist. No two candidates from the same artist.
+- NEVER suggest a track the user has already rated (listed below, if any).
 - Include likely_known: "low" for genuinely obscure picks, "medium" for moderately known, "high" for widely known.
 - Generate ${count} candidates (we will validate and may need extras).${broaderHint}`;
 
@@ -144,9 +150,9 @@ Recent dive recap:
 ${recap || "(first dive — no recap yet)"}
 
 Chosen direction: "${directionLabel}"
-Direction rationale: ${directionRationale}${eloBlock}
+Direction rationale: ${directionRationale}${eloBlock}${avoidBlock}
 
-Generate ${count} individual track candidates that fit this direction and this user's taste. Each must be a specific song, not an album title. Every candidate must be by a different artist. Steer away from the well-trodden artists and any artist already used in this dive.`;
+Generate ${count} individual track candidates that fit this direction and this user's taste. Each must be a specific song, not an album title. Every candidate must be by a different artist. Steer away from the well-trodden artists, any artist already used in this dive, and never repeat a track the user has already rated.`;
 
   const schema = {
     type: "object",
@@ -457,44 +463,51 @@ export async function generatePortrait(opts: {
     .join("\n");
 
   const pairList = pairChoices.length > 0
-    ? pairChoices.map((p) => `- Preferred "${p.winner}" over "${p.loser}" (strength: ${p.strength}/2)`).join("\n")
-    : "(no pairwise data yet)";
+    ? pairChoices.map((p) => `- leans toward ${p.winner} over ${p.loser}`).join("\n")
+    : "(none yet)";
 
-  const systemPrompt = `You are a music critic writing a taste portrait — the kind someone screenshots because it finally names something they felt but couldn't say. Robert Christgau's compression, a close listener's ear, and zero patience for the language of algorithms. Profile the *person*, not their playlist.
+  const systemPrompt = `You are a music critic writing a taste portrait — the kind someone screenshots because it finally names something they felt but couldn't say. Robert Christgau's compression, a close listener's ear, and zero patience for the language of algorithms. Profile the *person and the music that moves them* — not their scoreboard.
 
-Do the thinking silently, then write. Weight the signal honestly: a head-to-head ranking or a note they wrote in their own words is hard evidence; a lone unrated seed is a guess. Find the through-line that connects songs sharing no style or era, and find the axis where their choices pull against each other — resolve it or name it. Work out what specific thing they reach for inside each genre, what they avoid, and what music seems to *do* for them. Infer only from musical evidence; never invent biography, a life event, or a feeling they didn't give you.
+WHAT THIS PORTRAIT IS ABOUT: the **textures** that keep recurring across the music this listener loves — the specific sounds, tempos, timbres, and moods that light them up — set against what leaves them cold. You are naming *what their favourite music feels like*, and what that says about them. Someone reading it should learn what lights up music for *them*, not read a breakdown of their own choices.
+
+HOW YOU KNOW IT — AND WHY YOU NEVER SAY IT: this listener builds their taste by rating tracks on dives, starring the ones they add, and comparing tracks two at a time. Those ratings, stars, and comparisons are your **private evidence** — you read them to find the pattern, then you throw the mechanism away. They are NOT your subject. Do not narrate the data back. Never report which track "beat" or "won" against another, never cite a ranking number, rating value, or score, never recount a specific match-up or a win/loss/draw tally, never use the vocabulary of competition or analytics ("head-to-head," "the data shows," "ranked," "strength," "2/2"). If a sentence would only make sense to someone staring at the numbers, cut it and write what the music *feels* like instead.
+
+Do the thinking silently, then write. Weight the evidence honestly: a track they rated highly, starred, or wrote a note about tells you far more than a lone unrated seed. Find the through-line — the texture that connects favourites sharing no style or era. Find the axis of tension where their loves pull against each other, and resolve it or name it. Work out the specific thing they reach for inside each genre, what they avoid, and what the music seems to *do* for them. Infer only from musical evidence; never invent biography, a life event, or a feeling they didn't give you.
 
 Then write it — 200–400 words, second person, present tense, three paragraphs that breathe:
 
-1. OPEN ON SOMETHING CONCRETE. The first sentence lands on a real, specific observation about this listener — a craving, a contradiction, the shape of their taste — sharp enough that it couldn't describe anyone else. No warm-up, no "You are drawn to," no throat-clear. If your opening line could head a different person's portrait, delete it and start again.
+1. OPEN ON A TEXTURE, NOT A VERDICT. The first sentence names a real, specific quality this listener keeps chasing in sound — a craving, a contradiction, the feel of the thing they can't stop returning to — sharp enough it couldn't describe anyone else. No warm-up, no "You are drawn to," no recap of what out-ranked what. If your opening line could head a different person's portrait, delete it and start again.
 
-2. EARN EVERY CLAIM. Prefer the risky, precise read over the safe, universal one — each characterization should be specific enough that it could plausibly be wrong. Back the analysis with the evidence, then say what it *feels* like to have this taste. Where the evidence is thin, be evocative, not factual.
+2. EARN EVERY CLAIM FROM THE MUSIC ITSELF. Prefer the risky, precise read over the safe, universal one — specific enough it could plausibly be wrong. Point to the *quality in the sound* (the way a drum sits back off the beat, a voice that sounds embarrassed, a groove that threatens to fall apart), then say what it feels like to be lit up by it. Name a track only as the proof of a texture — never as a result, never with a number attached.
 
-3. NAME GENRES — BUT NEVER AS A LIST. Naming scenes and traditions precisely is the job, but no roll-call, no "from jazz to techno," no eras strung together with commas. Every genre arrives with an insight about *why* it's theirs: not "you like indie" but "you like indie when the guitars are brittle and the singing sounds embarrassed." Reach for a specific track or a line from their own notes only when it's the proof of a claim — a couple of well-placed specifics, never an inventory.
+3. NAME GENRES — BUT NEVER AS A LIST, AND NEVER AS A LEADERBOARD. Naming scenes and traditions precisely is the job, but no roll-call, no "from jazz to techno," no eras strung together with commas. Every genre arrives with the texture that makes it theirs: not "you like indie" but "you like indie when the guitars are brittle and the singing sounds embarrassed." Draw the contrast between what lights them up and what they push away as a difference in *feel* — not a difference in score.
 
-4. LAND THE ENDING. Close on a line worth quoting — the honest open question their taste leaves you with, the thing the next recommendation could test. Not a disclaimer, not a summary.
+4. LAND THE ENDING. Close on a line worth quoting — the honest open question their taste leaves you with, the next texture their listening might chase. Not a disclaimer, not a summary, not a scoreline.
 
 If a prior portrait is provided, treat the user's edits as authoritative and evolve it — don't start over.
 
-Banned on sight: "sonic," "soundscape," "sonic tapestry," "eclectic," "genre-defying," "musical journey," "auditory," "at its core," "a masterclass in," "whether it's X or Y," "diverse range," "eras and genres," "a little bit of everything," "you're in for a treat" — and any sentence generic enough to describe a different person.`;
+Banned on sight: any ELO number, rating value, or score; "head-to-head," "crushes," "2/2," "ranked," "the data," and any recap of who beat whom or a specific comparison; "sonic," "soundscape," "sonic tapestry," "eclectic," "genre-defying," "musical journey," "auditory," "at its core," "a masterclass in," "whether it's X or Y," "diverse range," "eras and genres," "a little bit of everything," "you're in for a treat" — and any sentence generic enough to describe a different person, or that only makes sense next to the numbers.`;
 
+  // PRIVATE evidence only — read for the pattern, do not quote the labels or notes
+  // back as results. Notes in their own words are the richest texture signal.
   const ratingsBlock = recentRatings && recentRatings.length > 0
-    ? "\n\nRecent track ratings and notes (strongest signal — weight heavily; the notes in their own words are the sharpest evidence of what they actually respond to):\n" +
+    ? "\n\nTracks they rated, and any notes (PRIVATE — infer the texture; never recite scores or list these back):\n" +
       recentRatings.map((r) => {
-        const scoreLabel = r.score === 1 ? " (1/3 — wants less of this)"
-          : r.score === 2 ? " (2/3 — middle ground)"
-          : r.score === 3 ? " (3/3 — wants more of this)" : "";
-        const note = r.reviewText ? ` — their note: "${r.reviewText}"` : "";
-        return `- "${r.title}" by ${r.artist}: ${r.listenState}${scoreLabel}${note}`;
+        const scoreLabel = r.score === 1 ? " — left them cold"
+          : r.score === 2 ? " — took it or left it"
+          : r.score === 3 ? " — lit them up" : "";
+        const note = r.reviewText ? ` — their words: "${r.reviewText}"` : "";
+        return `- "${r.title}" by ${r.artist}${scoreLabel}${note}`;
       }).join("\n")
     : "";
 
+  // Order carries the signal; no numbers to recite. Top = what their taste
+  // gravitates toward, bottom = what it pushes against.
   const eloBlock = eloTop && eloTop.length > 0
-    ? "\n\nHead-to-head ELO ranking (the distilled result of their direct comparisons — the SHARPEST preference signal; weight the extremes heavily). The top is the pole their taste gravitates toward, the bottom is what it pushes against:\n" +
-      "Highest-ranked:\n" +
-      eloTop.map((t) => `- "${t.title}" by ${t.artist} (${Math.round(t.rating)})`).join("\n") +
+    ? "\n\nWhere their comparisons land them (PRIVATE — this is how you KNOW, never what you SAY; do not mention rankings, numbers, or any match). The music their taste gravitates toward, strongest pull first:\n" +
+      eloTop.map((t) => `- "${t.title}" by ${t.artist}`).join("\n") +
       (eloBottom && eloBottom.length > 0
-        ? "\nLowest-ranked:\n" + eloBottom.map((t) => `- "${t.title}" by ${t.artist} (${Math.round(t.rating)})`).join("\n")
+        ? "\nThe music it leaves behind:\n" + eloBottom.map((t) => `- "${t.title}" by ${t.artist}`).join("\n")
         : "")
     : "";
 
@@ -502,7 +515,7 @@ Banned on sight: "sonic," "soundscape," "sonic tapestry," "eclectic," "genre-def
     ? `\n\nPrior portrait (evolve this, do not discard):\n${priorPortrait}`
     : "";
 
-  const userPrompt = `Seeds:\n${seedList}\n\nPairwise preferences:\n${pairList}${ratingsBlock}${eloBlock}${priorBlock}`;
+  const userPrompt = `Seeds (starting points, unrated — the weakest signal):\n${seedList}\n\nWhich of two they lean toward when made to choose (PRIVATE — evidence, not material to report):\n${pairList}${ratingsBlock}${eloBlock}${priorBlock}`;
 
   const portrait = await chat(PORTRAIT_MODEL, [
     { role: "system", content: systemPrompt },
@@ -510,6 +523,110 @@ Banned on sight: "sonic," "soundscape," "sonic tapestry," "eclectic," "genre-def
   ]);
 
   return portrait.trim();
+}
+
+// ---- Taste territories (naming pass) ----
+
+export interface TerritoryNaming {
+  territories: Array<{ key: string; name: string; blurb: string }>;
+  beyond: Array<{ name: string; blurb: string; tracks: Array<{ title: string; artist: string }> }>;
+}
+
+/**
+ * Name the clustered territories of a listener's taste map and suggest the
+ * unexplored regions beside them. One call for the whole map. The clusters
+ * arrive with a PRIVATE qualitative affinity label (never numbers), and the
+ * output must stay number-free — territories are textures, not leaderboards.
+ * Uses the music-appreciation house style (see .claude/skills/music-appreciation).
+ */
+export async function nameTerritories(opts: {
+  clusters: Array<{ key: string; tag: string; artists: string[]; tracks: string[]; affinity: string }>;
+}): Promise<TerritoryNaming> {
+  const { clusters } = opts;
+
+  const clusterBlock = clusters
+    .map((c) =>
+      `[${c.key}] seed tag: "${c.tag}"\n` +
+      `  artists: ${c.artists.join(", ")}\n` +
+      `  tracks: ${c.tracks.join("; ")}\n` +
+      `  standing (PRIVATE — never quote or paraphrase this label): ${c.affinity}`)
+    .join("\n\n");
+
+  const systemPrompt = `You are a music critic drawing the map of one listener's taste. Each cluster below is a real territory they occupy — a scene or texture their ranked tracks keep landing in. Your job: NAME each territory and give it one line, then name what lies just beyond the map.
+
+For each territory:
+- name: a coinage a sharp critic would use for this exact neighbourhood — 2-4 words, specific enough that it couldn't title a different cluster. Build on the seed tag but transcend it: not "indie rock" but the particular corner of it these artists share. Never generic ("Great Songs", "Eclectic Mix"), never a bare genre name if the artists let you be sharper.
+- blurb: ONE sentence, under 28 words, naming the texture that unites these tracks — the production, tempo, register, or mood they share — with a note of what it does for this listener. Concrete, falsifiable, no lists.
+
+Then "beyond": exactly 2-3 adjacent territories they have NOT entered — real scenes/sounds that border what they already love. For each: a name (same coinage rules), a one-line dare (why their taste says they might love it — frame it as an open challenge, not a promise), and 2 real, well-known exemplar tracks (title + artist) that are true entry points to that scene. Only name tracks and artists you are certain exist.
+
+Rules:
+- Number-free everywhere. No scores, rankings, counts, percentages, or the word "data".
+- The PRIVATE standing labels tell you which territories are strongholds vs. kept at arm's length — let that colour the writing, never state it outright.
+- Banned on sight: "sonic", "soundscape", "eclectic", "genre-defying", "musical journey", "diverse", "a masterclass in", "whether it's X or Y", "you're in for a treat".
+- Output ONLY valid JSON matching the schema.`;
+
+  const userPrompt = `The listener's territories:\n\n${clusterBlock}\n\nName each territory (return every key exactly once) and chart 2-3 territories beyond the map.`;
+
+  const schema = {
+    type: "object",
+    properties: {
+      territories: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            key: { type: "string" },
+            name: { type: "string" },
+            blurb: { type: "string" },
+          },
+          required: ["key", "name", "blurb"],
+        },
+      },
+      beyond: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            name: { type: "string" },
+            blurb: { type: "string" },
+            tracks: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  title: { type: "string" },
+                  artist: { type: "string" },
+                },
+                required: ["title", "artist"],
+              },
+            },
+          },
+          required: ["name", "blurb", "tracks"],
+        },
+      },
+    },
+    required: ["territories", "beyond"],
+  };
+
+  const raw = await chat(PORTRAIT_MODEL, [
+    { role: "system", content: systemPrompt },
+    { role: "user", content: userPrompt },
+  ], {
+    type: "json_schema",
+    json_schema: { name: "territory_map", schema, strict: true },
+  });
+
+  try {
+    const parsed = JSON.parse(raw) as TerritoryNaming;
+    return {
+      territories: parsed.territories ?? [],
+      beyond: (parsed.beyond ?? []).map((b) => ({ ...b, tracks: (b.tracks ?? []).slice(0, 3) })),
+    };
+  } catch (err) {
+    logger.error({ err, raw }, "Failed to parse territory naming response");
+    return { territories: [], beyond: [] };
+  }
 }
 
 // ---- Tasting note (per dive leg) ----

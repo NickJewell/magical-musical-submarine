@@ -101,7 +101,7 @@ export function DiscoverCard({ userId }: { userId: number }) {
     } finally {
       setLoading(false);
     }
-  }, [userId, fetchArtwork, fetchInfo]);
+  }, [userId, fetchArtwork, fetchPreview, fetchInfo]);
 
   useEffect(() => { loadNext(); }, [loadNext]);
 
@@ -263,6 +263,27 @@ function InfoPanel({
         <p className="font-serif text-lg leading-[1.75] text-primary-foreground/90">{text}</p>
       ) : (
         <p className="font-serif text-lg italic text-muted-foreground/40">No write-up found.</p>
+      )}
+    </div>
+  );
+}
+
+function InfoBubble({
+  label, heading, text, loading,
+}: { label: string; heading: string; text: string | null; loading: boolean }) {
+  return (
+    <div className="rounded-xl border border-border/30 bg-secondary/20 p-3">
+      <p className="text-[9px] font-mono text-primary/60 uppercase tracking-widest mb-1">{label}</p>
+      <p className="text-xs font-medium text-foreground/90 truncate mb-1.5">{heading}</p>
+      {loading ? (
+        <div className="flex items-center gap-1.5 text-muted-foreground/40">
+          <Loader2 className="w-3 h-3 animate-spin" />
+          <span className="text-[10px] font-mono uppercase tracking-wide">Reading up…</span>
+        </div>
+      ) : text ? (
+        <p className="text-[11px] leading-relaxed text-muted-foreground max-h-36 overflow-y-auto">{text}</p>
+      ) : (
+        <p className="text-[11px] italic text-muted-foreground/40">No write-up found.</p>
       )}
     </div>
   );

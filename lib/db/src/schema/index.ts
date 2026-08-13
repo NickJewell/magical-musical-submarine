@@ -12,3 +12,4 @@ export * from "./spotify";
 export * from "./canon";
 export * from "./elo";
 export * from "./discover_pool";
+export * from "./taste_territories";
